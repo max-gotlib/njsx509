@@ -1,0 +1,24 @@
+{
+  "name": "njsx509",
+  "version": "0.0.1",
+  "author": "Max Gotlib <mgotlib@exadel.com>",
+  "description": "X509 certificate parsing and issuing for Node.js",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/max-gotlib/njsx509.git"
+  },
+  "homepage": "http://max-gotlib/njsx509",
+  "main": "./lib/njsx509.js",
+  "keywords": [
+    "x509"
+  ],
+  "engines": {
+    "node": ">=0.6.14"
+  },
+  "dependencies": {},
+  "scripts": {
+    "install": "node-gyp rebuild"
+  },
+  "devDependencies": {},
+  "optionalDependencies": {}
+}
