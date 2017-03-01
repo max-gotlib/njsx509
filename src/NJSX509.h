@@ -357,51 +357,28 @@ namespace NJSX509
          * @param args JS function parameter list info.
          */
         static void New(const FunctionCallbackInfo<Value>& args);
-        
+                
         /**
-         * Accessor function implementation for 'subjectName' property of NJSX509Certificate JS prototype object.
+         * Accessor function implementation for string-type properties of NJSX509Certificate JS prototype object.
          * Property value is acquired from the native (C++) instance, wrapped by JS object that is set as accessor function calling context.
          *
+         * @tparam method Accessor method, called on native NJSX509Certificate class instance to get property value.
          * @param property JS object property name (ignored, because this method serves only one property).
          * @param info JS accessor function parameter list info.
          */
-        static void SubjectName(Local<String> property, const PropertyCallbackInfo<Value>& info);
+        template <const char* (NJSX509Certificate::*method)() const>
+        static void stringPropertyAccessor(Local<String> __unused property, const PropertyCallbackInfo<Value>& info);
         
         /**
-         * Accessor function implementation for 'commonName' property of NJSX509Certificate JS prototype object.
+         * Accessor function implementation for date-typed properties of NJSX509Certificate JS prototype object.
          * Property value is acquired from the native (C++) instance, wrapped by JS object that is set as accessor function calling context.
          *
+         * @tparam method Accessor method, called on native NJSX509Certificate class instance to get property value.
          * @param property JS object property name (ignored, because this method serves only one property).
          * @param info JS accessor function parameter list info.
          */
-        static void CommonName(Local<String> property, const PropertyCallbackInfo<Value>& info);
-        
-        /**
-         * Accessor function implementation for 'issuer' property of NJSX509Certificate JS prototype object.
-         * Property value is acquired from the native (C++) instance, wrapped by JS object that is set as accessor function calling context.
-         *
-         * @param property JS object property name (ignored, because this method serves only one property).
-         * @param info JS accessor function parameter list info.
-         */
-        static void Issuer(Local<String> property, const PropertyCallbackInfo<Value>& info);
-        
-        /**
-         * Accessor function implementation for 'validSince' property of NJSX509Certificate JS prototype object.
-         * Property value is acquired from the native (C++) instance, wrapped by JS object that is set as accessor function calling context.
-         *
-         * @param property JS object property name (ignored, because this method serves only one property).
-         * @param info JS accessor function parameter list info.
-         */
-        static void ValidSince(Local<String> property, const PropertyCallbackInfo<Value>& info);
-        
-        /**
-         * Accessor function implementation for 'notValidFrom' property of NJSX509Certificate JS prototype object.
-         * Property value is acquired from the native (C++) instance, wrapped by JS object that is set as accessor function calling context.
-         *
-         * @param property JS object property name (ignored, because this method serves only one property).
-         * @param info JS accessor function parameter list info.
-         */
-        static void NotValidAfter(Local<String> property, const PropertyCallbackInfo<Value>& info);
+        template <time_t (NJSX509Certificate::*method)() const>
+        static void datePropertyAccessor(Local<String> __unused property, const PropertyCallbackInfo<Value>& info);
         
         /**
          * Accessor function implementation for 'publicKey' property of NJSX509Certificate JS prototype object.

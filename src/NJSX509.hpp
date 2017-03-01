@@ -62,6 +62,48 @@ namespace NJSX509 {
         return obj;
     }
     
+    template <const char* (NJSX509Certificate::*method)() const>
+    void NJSX509Certificate::stringPropertyAccessor(Local<String> __unused property, const PropertyCallbackInfo<Value>& info)
+    {
+        NJSX509Certificate* obj = nativeObjectFromJSObject(info);
+        if( obj == nullptr )
+        {
+            return;
+        }
+        
+        const char* val = (obj->*method)();
+        
+        if( val != nullptr )
+        {
+            info.GetReturnValue().Set(String::NewFromUtf8(info.GetIsolate(), val));
+        }
+        else
+        {
+            info.GetReturnValue().SetUndefined();
+        }
+    }
+    
+    template <time_t (NJSX509Certificate::*method)() const>
+    void NJSX509Certificate::datePropertyAccessor(Local<String> __unused property, const PropertyCallbackInfo<Value>& info)
+    {
+        NJSX509Certificate* obj = nativeObjectFromJSObject(info);
+        if( obj == nullptr )
+        {
+            return;
+        }
+        
+        time_t val = (obj->*method)();
+        
+        if( val != 0 )
+        {
+            info.GetReturnValue().Set(Date::New(info.GetIsolate(), val * 1000.0));
+        }
+        else
+        {
+            info.GetReturnValue().SetUndefined();
+        }
+    }
+
     template <typename CertCallable>
     int NJSX509Certificate::parseCertificateStorePEM(const char* pemCertString, size_t dataLength, CertCallable callback)
     {

@@ -460,11 +460,16 @@ void NJSX509Certificate::Init(Local<Object> exports)
     Local<FunctionTemplate> tpl = FunctionTemplate::New(isolate, New);
     tpl->SetClassName(String::NewFromUtf8(isolate, "NJSX509Certificate"));
     tpl->InstanceTemplate()->SetInternalFieldCount(1);
-    tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "subjectName"), SubjectName, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
-    tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "issuer"), Issuer, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
-    tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "commonName"), CommonName, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
-    tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "validSince"), ValidSince, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
-    tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "notValidAfter"), NotValidAfter, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
+    tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "subjectName"),
+                                         stringPropertyAccessor<&NJSX509Certificate::getSubject>, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
+    tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "commonName"),
+                                         stringPropertyAccessor<&NJSX509Certificate::getCommonName>, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
+    tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "issuer"),
+                                         stringPropertyAccessor<&NJSX509Certificate::getIssuer>, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
+    tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "validSince"),
+                                         datePropertyAccessor<&NJSX509Certificate::getValidFrom>, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
+    tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "notValidAfter"),
+                                         datePropertyAccessor<&NJSX509Certificate::getNotValidAfter>, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
     tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "publicKey"), PublicKey, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
     
     // Populate prototype methods.
@@ -580,104 +585,6 @@ void NJSX509Certificate::New(const FunctionCallbackInfo<Value>& args)
     // Wrap native certificate object with JS object.
     obj->Wrap(args.This());
     args.GetReturnValue().Set(args.This());
-}
-
-void NJSX509Certificate::SubjectName(Local<String> __unused property, const PropertyCallbackInfo<Value>& info)
-{
-    NJSX509Certificate* obj = nativeObjectFromJSObject(info);
-    if( obj == nullptr )
-    {
-        return;
-    }
-    
-    const char* subject = obj->getSubject();
-    if( subject != nullptr )
-    {
-        info.GetReturnValue().Set(String::NewFromUtf8(info.GetIsolate(), subject));
-    }
-    else
-    {
-        info.GetReturnValue().SetUndefined();
-    }
-}
-
-void NJSX509Certificate::CommonName(Local<String> __unused property, const PropertyCallbackInfo<Value>& info)
-{
-    NJSX509Certificate* obj = nativeObjectFromJSObject(info);
-    if( obj == nullptr )
-    {
-        return;
-    }
-    
-    const char* cname = obj->getCommonName();
-    if( cname != nullptr )
-    {
-        info.GetReturnValue().Set(String::NewFromUtf8(info.GetIsolate(), cname));
-    }
-    else
-    {
-        info.GetReturnValue().SetUndefined();
-    }
-}
-
-void NJSX509Certificate::Issuer(Local<String> __unused property, const PropertyCallbackInfo<Value>& info)
-{
-    NJSX509Certificate* obj = nativeObjectFromJSObject(info);
-    if( obj == nullptr )
-    {
-        return;
-    }
-    
-    const char* issuerName = obj->getIssuer();
-    
-    if( issuerName != nullptr )
-    {
-        info.GetReturnValue().Set(String::NewFromUtf8(info.GetIsolate(), issuerName));
-    }
-    else
-    {
-        info.GetReturnValue().SetUndefined();
-    }
-}
-
-void NJSX509Certificate::ValidSince(Local<String> __unused property, const PropertyCallbackInfo<Value>& info)
-{
-    NJSX509Certificate* obj = nativeObjectFromJSObject(info);
-    if( obj == nullptr )
-    {
-        return;
-    }
-    
-    time_t validSince = obj->getValidFrom();
-    
-    if( validSince != 0 )
-    {
-        info.GetReturnValue().Set(Date::New(info.GetIsolate(), validSince * 1000.0));
-    }
-    else
-    {
-        info.GetReturnValue().SetUndefined();
-    }
-}
-
-void NJSX509Certificate::NotValidAfter(Local<String> __unused property, const PropertyCallbackInfo<Value>& info)
-{
-    NJSX509Certificate* obj = nativeObjectFromJSObject(info);
-    if( obj == nullptr )
-    {
-        return;
-    }
-    
-    time_t validSince = obj->getNotValidAfter();
-    
-    if( validSince != 0 )
-    {
-        info.GetReturnValue().Set(Date::New(info.GetIsolate(), validSince * 1000.0));
-    }
-    else
-    {
-        info.GetReturnValue().SetUndefined();
-    }
 }
 
 void NJSX509Certificate::PublicKey(Local<String> __unused property, const PropertyCallbackInfo<Value>& info)
