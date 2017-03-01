@@ -238,6 +238,41 @@ namespace NJSX509 {
         BIO_free(mbio);
         return true;
     }
+    
+    template <typename StringCallable>
+    bool NJSX509Certificate::copyPrivateKey(const char* passphrase, size_t passphraseLength, StringCallable callback) const
+    {
+        if( privateKey_ == nullptr )
+        {
+            return false;
+        }
+
+        BIO* mbio = BIO_new(BIO_s_mem());
+        if( mbio == nullptr )
+        {
+            return false;
+        }
+        
+        
+        if( passphrase == nullptr )
+        {
+            passphrase = "";
+            passphraseLength = 0;
+        }
+        else if( passphraseLength == 0 )
+        {
+            passphraseLength = ::strlen(passphrase);
+        }
+        PEM_write_bio_PrivateKey(mbio, privateKey_, EVP_aes_256_cbc(), (unsigned char*)passphrase, (int)passphraseLength, nullptr, nullptr);
+        BIO_write(mbio, "\0", 1);
+        
+        const char* pkPtr = nullptr;
+        size_t pkLen = BIO_get_mem_data(mbio, &pkPtr);
+        callback(pkPtr, pkLen);
+        
+        BIO_free(mbio);
+        return true;
+    }
 
 } // en of namespace NJS51Maps
 

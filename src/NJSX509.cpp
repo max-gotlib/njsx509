@@ -40,6 +40,7 @@ Persistent<Function> NJSX509Certificate::constructor_;
 
 NJSX509Certificate::NJSX509Certificate(X509* cert)
     : x509Certificate_(cert)
+    , privateKey_(nullptr)
     , subject_(nullptr)
     , issuer_(nullptr)
     , commonName_(nullptr)
@@ -56,6 +57,12 @@ NJSX509Certificate::~NJSX509Certificate()
     {
         X509_free(x509Certificate_);
         x509Certificate_ = nullptr;
+    }
+    
+    if( privateKey_ != nullptr )
+    {
+        EVP_PKEY_free(privateKey_);
+        privateKey_ = nullptr;
     }
     
     if( subject_ != nullptr )
@@ -460,6 +467,8 @@ void NJSX509Certificate::Init(Local<Object> exports)
     Local<FunctionTemplate> tpl = FunctionTemplate::New(isolate, New);
     tpl->SetClassName(String::NewFromUtf8(isolate, "NJSX509Certificate"));
     tpl->InstanceTemplate()->SetInternalFieldCount(1);
+    
+    // Populate prototype calculated properties.
     tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "subjectName"),
                                          stringPropertyAccessor<&NJSX509Certificate::getSubject>, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
     tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "commonName"),
@@ -473,7 +482,7 @@ void NJSX509Certificate::Init(Local<Object> exports)
     tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "publicKey"), PublicKey, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
     
     // Populate prototype methods.
-    //            NODE_SET_PROTOTYPE_METHOD(tpl, "subjectName", SubjectName);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "privateKey", PrivateKey);
     
     // Persist constructor function object.
     Local<Function> func = tpl->GetFunction();
@@ -524,7 +533,7 @@ void NJSX509Certificate::NewInstance(const FunctionCallbackInfo<Value>& args)
 }
 
 #if __clang__
-#pragma mark - JS NJSX509 prototype methods.
+#pragma mark - JS NJSX509 prototype methods and property accessors.
 #endif
 
 void NJSX509Certificate::New(const FunctionCallbackInfo<Value>& args)
@@ -606,6 +615,38 @@ void NJSX509Certificate::PublicKey(Local<String> __unused property, const Proper
         }
     });
 
+    if( !ok )
+    {
+        info.GetReturnValue().SetUndefined();
+    }
+}
+
+void NJSX509Certificate::PrivateKey(const FunctionCallbackInfo<Value>& info)
+{
+    NJSX509Certificate* obj = nativeObjectFromJSObject(info);
+    if( obj == nullptr )
+    {
+        return;
+    }
+    
+    Local<Value> passArg;
+    if( info.Length() > 0 )
+    {
+        passArg = info[0];
+    }
+    String::Utf8Value passStr(passArg->ToString());
+
+    bool ok = obj->copyPrivateKey(*passStr, passStr.length(), [info](const char* pk, size_t /* pkLen */) {
+        if( pk != nullptr )
+        {
+            info.GetReturnValue().Set(String::NewFromUtf8(info.GetIsolate(), pk));
+        }
+        else
+        {
+            info.GetReturnValue().SetUndefined();
+        }
+    });
+    
     if( !ok )
     {
         info.GetReturnValue().SetUndefined();

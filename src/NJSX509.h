@@ -281,6 +281,16 @@ namespace NJSX509
         template <typename StringCallable>
         bool copyPublicKey(StringCallable callback) const;
         
+        /**
+         * Compose PEM encoded RSA private key, encrypted with given passphrase, represented by a zero-terminated string and feed it to caller supplied callback.
+         *
+         * @tparam StringCallable Callback prototype: void callback(const char* pkData, size_t pkLen).
+         * @param callback Callback callable to feed with encrypted private key PEM representation data.
+         * @return True on successfully composed private key representation.
+         */
+        template <typename StringCallable>
+        bool copyPrivateKey(const char* passphrase, size_t passphraseLength, StringCallable callback) const;
+
     protected:  // Helper (utility) methods.
         
         /**
@@ -388,9 +398,30 @@ namespace NJSX509
          * @param info JS accessor function parameter list info.
          */
         static void PublicKey(Local<String> property, const PropertyCallbackInfo<Value>& info);
+        
+        /**
+         * JS object of NJSX509Certificate class exported method for encrypting and PEM encoding private key.
+         * It is expected, that JS method will be called with an optional (defaults to an empty string) argument - private key encryption passphrase.
+         * Return value by JS method is a string with encrypted and PEM private key.
+         *
+         * @param info JS function parameter list info.
+         */
+        static void PrivateKey(const FunctionCallbackInfo<Value>& info);
 
     protected:  // NodeJS add-on exported methods.
         
+        /**
+         * Ad-on exported method for parsing X509 certificate collection into an array of JS objects of NJSX509Certificate class.
+         * It is expected, that JS method will ve called with the following arguments:
+         *      data - Certificate store data in one of supported formats, represented as a String or Node Buffer objet;
+         *      fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
+         *          'pem' - PEM representation - concatenation of PEM represented certificates; data parameter may be String or Node.Buffer.
+         *          'der' - DER representation - concatenation of DER represented certificates; data parameter should be Node.Buffer.
+         *          'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
+         *  Return value by JS method is an array of NJSX509Certificate objects. Parsing error causes a JS exception thrown and undefined value returned.
+         *
+         * @param args JS accessor function parameter list info.
+         */
         static void ParseCertificateStore(const FunctionCallbackInfo<Value>& args);
         
         static void ParsePKCS12(const FunctionCallbackInfo<Value>& args);
@@ -404,6 +435,9 @@ namespace NJSX509
         
         /// Underlying native certificate instance.
         X509* x509Certificate_;
+        
+        /// Private key the certificate is signed with.
+        EVP_PKEY* privateKey_;
         
         /// Certificate subject name, represented by a single line zero-terminated string.
         mutable char* subject_;

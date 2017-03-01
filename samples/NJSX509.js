@@ -26,7 +26,8 @@ try {
     console.log(`Issuer:  ${cert.issuer}`);
     console.log(`CN:      ${cert.commonName}`);
     console.log(`Valid:   ${cert.validSince.toString()} --- ${cert.notValidAfter.toString()}`);
-    console.log(`PK:      ${cert.publicKey}`);
+    console.log(`PubKey:  ${cert.publicKey}`);
+    console.log(`PrvKey:  ${cert.privateKey('123')}`);
     
 //    var store = njsX509.importCertificateStore(certData, 'base64_der');
 //    for(c of store) {
