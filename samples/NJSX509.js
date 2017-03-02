@@ -9,6 +9,22 @@ try {
 var cert
 
 try {
+//    let identData = fs.readFileSync('client.identity');
+//    let rv = njsX509.importPKCS12(identData, 'ipad', 'der');
+//    let caCert = rv.certificate;
+//    let caPK = rv.pk
+    
+    let caCert = new njsX509.NJSX509Certificate();
+
+    cert = caCert.issueCertificate('0123456789-10-123456789-20-123456789-30-123456789-40', 532); //, caPK, 'ipad');
+    console.log(cert);
+    console.log('============================================================');
+    console.log(cert.getPrivateKey('ipad'));
+} catch(e) {
+    console.error(e);
+}
+
+try {
     cert = new njsX509.NJSX509Certificate();
     let pkData = fs.readFileSync('key.pem');
     cert.setPrivateKey(pkData, 'ipad');

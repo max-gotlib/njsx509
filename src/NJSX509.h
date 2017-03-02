@@ -88,15 +88,24 @@ namespace NJSX509
      *  NJSX509Certificate.getPrivateKey([passphrase])
      *    Get a private key, associated with certificate, encrypt it with given passphrase and return in PEM (encrypted PKCS8 blob) format.
      *    Parameters:
-     *      passphrase - Pasphrase to encrypt private key witj. Should be a convertible to String. Default to an empty string.
+     *      passphrase - Passphrase to encrypt private key with. Should be a convertible to String. Default to an empty string.
      *    Return value: PEM-encoded private key string (encrypted PKCS8 blob). Undefined is retiurned if there is no private key, associated with certificate object.
      *
      *  NJSX509Certificate.setPrivateKey(key, [passphrase])
-     *    Associate a private key with certificate, Pricate key should be provided as PEM string (encrypted PKCS8 blob), with optional passphrase for decrypting.
+     *    Associate a private key with certificate, Private key should be provided as PEM string (encrypted PKCS8 blob), with optional passphrase for decrypting.
      *    Parameters:
      *      key - PEM-encoded private key string (encrypted PKCS8 blob). Should be a convertible to String or Node.Buffer.
-     *      passphrase - Pasphrase to encrypt private key with. Should be a convertible to String. Default to an empty string.
-     *    Return value: PEM-encoded private key string. Undefined is retiurned if there is no private key, associated with certificate object.
+     *      passphrase - Passphrase to encrypt private key with. Should be a convertible to String. Default to an empty string.
+     *    Return value: PEM-encoded private key string. Undefined is returned if there is no private key, associated with certificate object.
+     *
+     *  NJSX509Certificate.issueCertificate(cname [, serialNo [, key [, passphrase]]])
+     *    Issue new X509 certificate. Instance should have a private key attached, either it should be explicitly provided as PEM string (encrypted PKCS8 blob), with optional passphrase for decrypting.
+     *    Parameters:
+     *      cname - Common name for new certificate. Should be a convertible to String.
+     *      serialNo - (optional) Serial number for the new certificate. Should be a convertible to Number. Defaults to 1.
+     *      key - (optional) PEM-encoded private key string (encrypted PKCS8 blob). Should be a convertible to String or Node.Buffer. If not passed, then private key, associated with issuer certificate is used.
+     *      passphrase - (optional) Passphrase to encrypt private key with. Should be a convertible to String. Default to an empty string.
+     *    Return value: A new issued certificate - NJSX509Certificate class instance. Undefined is returned on error. Incomplete or invalid input data causes JS exception thrown.
      *
      * Besides API, exposed by NJSX509Certificate objects, the NJSX509 add-on module export the following factory methods:
      *
@@ -110,11 +119,12 @@ namespace NJSX509
      *          'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
      *    Return value: array of NJSX509Certificate objects. Parsing error causes an exception and undefined value returned.
      *
-     *  NJSX509Certificate.importPKCS12(data [, fmt])
+     *  NJSX509Certificate.importPKCS12(data [, passphrase ] [, fmt ])
      *    Parse PKCS12 (client certificate) data blob into a primary (client) certificate, associated with a private key, and a list of ancestor (CA) certificates.
      *    Parameters:
      *      data - Certificate store data in one of supported formats, represented as a String or Node Buffer objet;
-     *      fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
+     *      passphrase - (optional) Passphrase for PKCS12 bag decryption. Defaults to an empty string;
+     *      fmt - (optional, always the last parameter) certificate data representation format. Default format is 'pem'. Supported formats are:
      *          'pem' - PEM representation - concatenation of PEM represented certificates; data parameter may be String or Node.Buffer.
      *          'der' - DER representation - concatenation of DER represented certificates; data parameter should be Node.Buffer.
      *          'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
@@ -271,7 +281,7 @@ namespace NJSX509
          * @param passphrase Passphrase for decrypting PKCS12 secure bag.
          * @param certCallback Callback, fed with primary certificate.
          * @param pkCallback Callback, fed with private key.
-         * @param caCallback Callback, fed with secondary (ancestor) certificates (one call per each certiicate).
+         * @param caCallback Callback, fed with secondary (ancestor) certificates (one call per each certificate).
          *
          * @note It guaranteed, that if given PKCS12 bag has a certificate definition, then certCallback is called first (before other callbacks).
          * @note Certificate, private key and CA certificates, presented via callbacks, are released upon function return.
@@ -377,6 +387,16 @@ namespace NJSX509
          * @param pk Private key OpenSSL wrapper. This method up-refs the pk wrapper, so it may be released by the caller right after return.
          */
         void setPrivateKey(EVP_PKEY* pk);
+        
+        /**
+         * Issue a X509 certificate, signed by the given client identity.
+         *
+         * @param cname Common name part of the issued certificate subject name.
+         * @param serialNo Serial number attribute for the issued certificate.
+         * @param privateKey Private key for the issued certificate. If NULL is passed, then issued certificate will have the same private key as the source identity.
+         * @return Issued X509 opaque reference. The caller is expected to release the issued certificate.
+         */
+        X509* issueNewCertificate(const char* cname, size_t cnameLen, unsigned serialNo = 1, EVP_PKEY* privateKey = nullptr);
 
     protected:  // Helper (utility) methods.
         
@@ -413,7 +433,7 @@ namespace NJSX509
          *
          * @param args Function argument list.
          * @param minNumberOfArguments Minimum number of arguments, expected by the function.
-         * @param typeArgumentIndex Index of the data type function argument. If negavice integer passed, then type argument is considered to be the last one.
+         * @param typeArgumentIndex Index of the data type function argument. If negative integer passed, then type argument is considered to be the last one.
          * @param certFormat On return, is assigned with guessed data type code.
          * @return True, if argument list constrains are satisfied for the function.
          */
@@ -512,15 +532,28 @@ namespace NJSX509
         static void GetPrivateKey(const FunctionCallbackInfo<Value>& info);
         
         /**
-         * JS object of NJSX509Certificate class exported method for associating a private key with certificate. Pricate key should be provided as PEM string (encrypted PKCS8 blob), with optional passphrase for decrypting.
-         * It is expected, that JS method will be called with the follwing parameters:
+         * JS object of NJSX509Certificate class exported method for associating a private key with certificate. Private key should be provided as PEM string (encrypted PKCS8 blob), with optional passphrase for decrypting.
+         * It is expected, that JS method will be called with the following parameters:
          *      key - PEM-encoded private key string (encrypted PKCS8 blob). Should be a convertible to String or Node.Buffer.
-         *      passphrase - Pasphrase to encrypt private key with. Should be a convertible to String. Default to an empty string.
-         * Return value by JS method is a PEM-encoded private key string. Undefined is retiurned if there is no private key, associated with certificate object.
+         *      passphrase - Passphrase to encrypt private key with. Should be a convertible to String. Default to an empty string.
+         * Return value by JS method is a PEM-encoded private key string. Undefined is returned if there is no private key, associated with certificate object.
          *
          * @param info JS function parameter list info.
          */
         static void SetPrivateKey(const FunctionCallbackInfo<Value>& info);
+
+        /**
+         * JS object of NJSX509Certificate class exported method for X509 certificate issuing. Instance should have a private key attached, either it should be provided as PEM string (encrypted PKCS8 blob), with optional passphrase for decrypting.
+         * It is expected, that JS method will be called with the following parameters:
+         *      cname - Common name for new certificate. Should be a convertible to String.
+         *      serialNo - (optional) Serial number for the new certificate. Should be a convertible to Number. Defaults to 1.
+         *      key - (optional) PEM-encoded private key string (encrypted PKCS8 blob). Should be a convertible to String or Node.Buffer. If not passed, then private key, associated with issuer certificate is used.
+         *      passphrase - (optional) Passphrase to encrypt private key with. Should be a convertible to String. Default to an empty string.
+         * Return value by JS method is a new issued certificate - NJSX509Certificate class instance. Undefined is returned on error. Incomplete or invalid input data causes JS exception thrown.
+         *
+         * @param info JS function parameter list info.
+         */
+        static void IssueCertificate(const FunctionCallbackInfo<Value>& info);
 
     protected:  // NodeJS add-on exported methods.
         
@@ -540,8 +573,9 @@ namespace NJSX509
         
         /**
          * Ad-on exported method for parsing PKCS12 client certificate.
-         * It is expected, that JS method will ve called with the following arguments:
+         * It is expected, that JS method will be called with the following arguments:
          *   data - Certificate store data in one of supported formats, represented as a String or Node Buffer objet;
+         *   passphrase - Passphrase for PKCS12 bag decryption. Defaults to an empty string;
          *   fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
          *     'pem' - PEM representation - concatenation of PEM represented certificates; data parameter may be String or Node.Buffer.
          *     'der' - DER representation - concatenation of DER represented certificates; data parameter should be Node.Buffer.
@@ -555,9 +589,6 @@ namespace NJSX509
          * @param args JS function parameter list info.
          */
         static void ParsePKCS12(const FunctionCallbackInfo<Value>& args);
-        
-#warning Comment me !!!!
-        static void IssueCertificate(const FunctionCallbackInfo<Value>& args);
         
     private:
         

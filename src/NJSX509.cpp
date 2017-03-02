@@ -15,6 +15,7 @@
 
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <openssl/x509v3.h>
 
 #if __clang__
 #pragma clang diagnostic pop
@@ -337,6 +338,155 @@ void NJSX509Certificate::setPrivateKey(EVP_PKEY* pk)
     }
 }
 
+X509* NJSX509Certificate::issueNewCertificate(const char* cname, size_t cnameLen, unsigned serialNo, EVP_PKEY* privateKey)
+{
+    assert(cname != nullptr);
+    if( cname == nullptr )
+    {
+        return nullptr;
+    }
+    
+    if( x509Certificate_ == nullptr )
+    {
+        return nullptr;
+    }
+    
+    EVP_PKEY* caPublicKey = X509_get_pubkey(x509Certificate_);
+    if( caPublicKey == nullptr )
+    {
+        return nullptr;
+    }
+    
+    if( privateKey == nullptr )
+    {
+        privateKey = privateKey_;
+    }
+    if( privateKey == nullptr )
+    {
+        return nullptr;
+    }
+    
+    X509* newCert = X509_new();
+    assert(newCert != nullptr);
+    if( newCert == nullptr )
+    {
+        return nullptr;
+    }
+    
+    if( X509_set_version(newCert, 2L) != 1 )
+    {
+    free_cert_and_return_error:
+        X509_free(newCert);
+        return nullptr;
+    }
+    
+    ASN1_INTEGER_set(X509_get_serialNumber(newCert), (long)serialNo);
+    
+    if( X509_gmtime_adj(X509_get_notBefore(newCert), (long)-60*60*24) == nullptr || X509_gmtime_adj(X509_get_notAfter(newCert), (long)60*60*24*365) == nullptr )
+    {
+        goto free_cert_and_return_error;
+    }
+    
+    if( X509_set_pubkey(newCert, privateKey) != 1 )
+    {
+        goto free_cert_and_return_error;
+    }
+    
+    X509_NAME* name = X509_get_subject_name(x509Certificate_);
+    if( name == nullptr )
+    {
+        goto free_cert_and_return_error;
+    }
+    if( X509_set_issuer_name(newCert, name) != 1 )
+    {
+        goto free_cert_and_return_error;
+    }
+    
+    bool ok = false;
+    char* altName = nullptr;
+    name = X509_NAME_dup(name);
+    if( name != nullptr )
+    {
+        if( cnameLen == 0 )
+        {
+            cnameLen = ::strlen(cname);
+        }
+        if( cnameLen > 40 )
+        {
+            // Target host name is too long to fit X509 subject cname field size restrictions.
+            altName = (char*) ::malloc(cnameLen + 4 /* "DNS:" */ + 1);
+            assert(altName != nullptr);
+            if( altName != nullptr )
+            {
+                memcpy(altName, "DNS:", 5);
+                memcpy(altName + 4, cname, cnameLen + 1);
+            }
+            cname += cnameLen - 40;
+        }
+
+        int loc = X509_NAME_get_index_by_NID(name, NID_commonName, -1);
+        if( loc >= 0 )
+        {
+            X509_NAME_delete_entry(name, loc);
+        }
+        
+        ok = X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_UTF8, (const unsigned char*)cname, -1, -1, 0) == 1 && X509_set_subject_name(newCert, name) == 1;
+        assert(ok);
+        X509_NAME_free(name);
+    }
+    if( !ok )
+    {
+        if( altName != nullptr )
+        {
+            ::free(altName);
+        }
+        goto free_cert_and_return_error;
+    }
+    
+    
+    if( altName != nullptr )
+    {
+        // Add long target host name as x509v3 extension.
+        X509V3_CTX ctx;
+        X509V3_set_ctx(&ctx, x509Certificate_, newCert, NULL, NULL, 0);
+#ifdef OPENSSL_IS_BORINGSSL
+        X509_EXTENSION *ext = X509V3_EXT_nconf(NULL, &ctx, (char*)"subjectAltName", altName);
+#else
+        X509_EXTENSION *ext = X509V3_EXT_conf(NULL, &ctx, (char*)"subjectAltName", altName);
+#endif // OPENSSL_IS_BORINGSSL
+        if( ext != nullptr )
+        {
+            X509_add_ext(newCert, ext, -1);
+            X509_EXTENSION_free(ext);
+        }
+        ::free(altName);
+    }
+    
+    const EVP_MD* digest;
+    switch( EVP_PKEY_type(privateKey->type) )
+    {
+#ifndef OPENSSL_IS_BORINGSSL
+        case EVP_PKEY_DSA:
+            digest = EVP_dss1();
+            break;
+#endif // OPENSSL_IS_BORINGSSL
+        case EVP_PKEY_RSA:
+            digest = EVP_sha256();
+            break;
+        default:
+            assert(false);
+            X509_free(newCert);
+            return nullptr;
+    }
+    
+    if( X509_sign(newCert, privateKey, digest) == 0 )
+    {
+        goto free_cert_and_return_error;
+    }
+    
+    return newCert;    
+}
+
 #if __clang__
 #pragma mark - Utility methods.
 #endif
@@ -554,6 +704,7 @@ void NJSX509Certificate::Init(Local<Object> exports)
     // Populate prototype methods.
     NODE_SET_PROTOTYPE_METHOD(tpl, "getPrivateKey", GetPrivateKey);
     NODE_SET_PROTOTYPE_METHOD(tpl, "setPrivateKey", SetPrivateKey);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "issueCertificate", IssueCertificate);
     
     // Persist constructor function object.
     Local<Function> func = tpl->GetFunction();
@@ -790,6 +941,118 @@ void NJSX509Certificate::SetPrivateKey(const FunctionCallbackInfo<Value>& info)
     }
 }
 
+void NJSX509Certificate::IssueCertificate(const FunctionCallbackInfo<Value>& info)
+{
+    NJSX509Certificate* obj = nativeObjectFromJSObject(info);
+    if( obj == nullptr )
+    {
+        return;
+    }
+
+    Isolate* isolate = info.GetIsolate();
+    if( obj->x509Certificate_ == nullptr )
+    {
+        isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "Issue X509: incomplete CA certificate.")));
+        return;
+    }
+    
+    if( info.Length() == 0 )
+    {
+        isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "Wrong number of arguments.")));
+        return;
+    }
+    
+    String::Utf8Value cnameStr(info[0]->ToString());
+    if( cnameStr.length() == 0 )
+    {
+        isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "No string cname argument.")));
+        return;
+    }
+
+    unsigned serialNo = 1;
+    EVP_PKEY* pk = nullptr;
+    if( info.Length() > 1 )
+    {
+        serialNo = info[1]->NumberValue();
+
+        if( info.Length() > 2 )
+        {
+            ::std::string passphrase;
+            if( info.Length() > 3 )
+            {
+                String::Utf8Value passStr(info[3]->ToString());
+                if( passStr.length() > 0 )
+                {
+                    passphrase.append(*passStr, passStr.length());
+                }
+            }
+            
+            bool ok = CallWithRawDataRepresentation(info[2], [&passphrase, &pk, isolate](const char* pemData, size_t dataLength) -> bool {
+                pk = newPrivateKeyFromPEM(pemData, dataLength, passphrase.c_str());
+                if( pk == nullptr )
+                {
+                    std::string temp = "PrivateKey parse: ";
+                    temp += ERR_error_string(ERR_get_error(), nullptr);
+                    isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, temp.c_str())));
+                    return false;
+                }
+                return true;
+            });
+            if( !ok )
+            {
+                return;
+            }
+        }
+    }
+    
+    if( pk == nullptr && obj->getPrivateKey() == nullptr )
+    {
+        isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "Issue X509: no private key.")));
+        return;
+    }
+    
+    X509* cert = obj->issueNewCertificate(*cnameStr, cnameStr.length(), serialNo, pk);
+    if( cert == nullptr )
+    {
+        if( pk != nullptr )
+        {
+            EVP_PKEY_free(pk);
+        }
+        std::string temp = "Issue X509: ";
+        temp += ERR_error_string(ERR_get_error(), nullptr);
+        isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, temp.c_str())));
+        return;
+    }
+
+    NJSX509Certificate* newObj = new NJSX509Certificate(cert);
+    X509_free(cert);
+    if( newObj == nullptr )
+    {
+        if( pk != nullptr )
+        {
+            EVP_PKEY_free(pk);
+        }
+        return;
+    }
+
+    newObj->setPrivateKey(pk);
+    if( pk != nullptr )
+    {
+        EVP_PKEY_free(pk);
+    }
+
+    // Wrap native certificate object with JS object.
+    MaybeLocal<Object> instance = NewJSInstance(isolate, 0, nullptr, newObj);
+    if( instance.IsEmpty() )
+    {
+        delete newObj;
+        info.GetReturnValue().SetUndefined();
+        return;
+    }
+
+    info.GetReturnValue().Set(instance.ToLocalChecked());
+}
+
 #if __clang__
 #pragma mark - JS methods exported by NJSX509 module.
 #endif
@@ -981,11 +1244,6 @@ void NJSX509Certificate::ParsePKCS12(const FunctionCallbackInfo<Value>& args)
     {
         args.GetReturnValue().Set(retObj);
     }
-}
-
-void NJSX509Certificate::IssueCertificate(const FunctionCallbackInfo<Value>& args)
-{
-#warning Implement me!!!!
 }
 
 #if __clang__
