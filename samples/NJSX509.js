@@ -10,7 +10,10 @@ var cert
 
 try {
     cert = new njsX509.NJSX509Certificate();
+    let pkData = fs.readFileSync('key.pem');
+    cert.setPrivateKey(pkData, 'ipad');
     console.log(cert);
+    console.log(cert.getPrivateKey('123'));
 } catch(e) {
     console.error(e);
 }
@@ -35,7 +38,7 @@ try {
     console.log(`CN:      ${cert.commonName}`);
     console.log(`Valid:   ${cert.validSince.toString()} --- ${cert.notValidAfter.toString()}`);
     console.log(`PubKey:  ${cert.publicKey}`);
-    console.log(`PrvKey:  ${cert.privateKey('123')}`);
+    console.log(`PrvKey:  ${cert.getPrivateKey('123')}`);
     
 //    var store = njsX509.importCertificateStore(certData, 'base64_der');
 //    for(c of store) {

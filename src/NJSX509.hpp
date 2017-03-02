@@ -38,16 +38,14 @@ namespace NJSX509 {
             size_t dataLen = node::Buffer::Length(val);
             if( dataPtr != nullptr || dataLen )
             {
-                callback(dataPtr, dataLen);
-                return true;
+                return callback(dataPtr, dataLen);
             }
         }
         
         String::Utf8Value utf8Val(val);
         if( utf8Val.length() > 0 )
         {
-            callback(*utf8Val, utf8Val.length());
-            return true;
+            return callback(*utf8Val, utf8Val.length());
         }
         
         return false;
@@ -124,10 +122,10 @@ namespace NJSX509 {
     template <class MethodCallInfo>
     NJSX509Certificate* NJSX509Certificate::nativeObjectFromJSObject(const MethodCallInfo& info)
     {
+        Isolate* isolate = info.GetIsolate();
         Local<Object> _self = info.Holder();
         if( _self.IsEmpty() )
         {
-            Isolate* isolate = info.GetIsolate();
             assert(isolate != nullptr);
             if( isolate != nullptr )
             {
@@ -136,6 +134,11 @@ namespace NJSX509 {
             return nullptr;
         }
         
+        if( !_self->GetConstructorName()->Equals(constructor_.Get(isolate)->GetName()) )
+        {
+            return nullptr;
+        }
+
         NJSX509Certificate* obj = ObjectWrap::Unwrap<NJSX509Certificate>(_self);
         return obj;
     }

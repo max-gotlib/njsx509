@@ -184,6 +184,35 @@ X509* NJSX509Certificate::newCertificateFromBase64DER(const char* derCertData, s
     return cert;
 }
 
+EVP_PKEY* NJSX509Certificate::newPrivateKeyFromPEM(BIO* bio, const char* passphrase)
+{
+    if( passphrase == nullptr )
+    {
+        passphrase = "";
+    }
+    EVP_PKEY* pk = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, (void*)passphrase);
+    return pk;
+}
+
+EVP_PKEY* NJSX509Certificate::newPrivateKeyFromPEM(const char* pemPKString, size_t dataLength, const char* passphrase)
+{
+    assert(pemPKString != nullptr);
+    assert(dataLength > 0);
+    if( pemPKString == nullptr || dataLength == 0 )
+    {
+        return nullptr;
+    }
+
+    BIO* bmem = BIO_new_mem_buf(const_cast<char*>(pemPKString), static_cast<int>(dataLength));
+    assert(bmem != nullptr);
+    if( bmem == nullptr )
+    {
+        return nullptr;
+    }
+
+    return newPrivateKeyFromPEM(bmem, passphrase);
+}
+
 #if __clang__
 #pragma mark - Native certificate attribute acceessor methods.
 #endif
@@ -523,7 +552,8 @@ void NJSX509Certificate::Init(Local<Object> exports)
     tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "publicKey"), PublicKey, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
     
     // Populate prototype methods.
-    NODE_SET_PROTOTYPE_METHOD(tpl, "privateKey", PrivateKey);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "getPrivateKey", GetPrivateKey);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "setPrivateKey", SetPrivateKey);
     
     // Persist constructor function object.
     Local<Function> func = tpl->GetFunction();
@@ -602,10 +632,13 @@ void NJSX509Certificate::New(const FunctionCallbackInfo<Value>& args)
     }
     
     // Special case - constructor called with no arguments.
+    NJSX509Certificate* obj = nullptr;
     if( args.Length() == 0 )
     {
+        obj = new NJSX509Certificate(nullptr);
+        assert(obj != nullptr);
         Local<Object> _self = args.This();
-        _self->SetAlignedPointerInInternalField(0, nullptr);
+        obj->Wrap(_self);
         args.GetReturnValue().Set(_self);
         return;
     }
@@ -618,8 +651,7 @@ void NJSX509Certificate::New(const FunctionCallbackInfo<Value>& args)
     }
     
     // Try to instantiate certificate object.
-    NJSX509Certificate* obj = nullptr;
-    CallWithRawDataRepresentation(args[0], [&obj, certFormat](const char* dataPtr, size_t dataLen) -> void {
+    CallWithRawDataRepresentation(args[0], [&obj, certFormat](const char* dataPtr, size_t dataLen) -> bool {
         X509* c = nullptr;
         switch( certFormat )
         {
@@ -635,10 +667,13 @@ void NJSX509Certificate::New(const FunctionCallbackInfo<Value>& args)
             default:
                 break;
         }
-        if( c != nullptr )
+        if( c == nullptr )
         {
-            obj = new NJSX509Certificate(c);
+            return false;
         }
+        obj = new NJSX509Certificate(c);
+        assert(obj != nullptr);
+        return obj != nullptr;
     });
     
     if( obj == nullptr )
@@ -678,7 +713,7 @@ void NJSX509Certificate::PublicKey(Local<String> __unused property, const Proper
     }
 }
 
-void NJSX509Certificate::PrivateKey(const FunctionCallbackInfo<Value>& info)
+void NJSX509Certificate::GetPrivateKey(const FunctionCallbackInfo<Value>& info)
 {
     NJSX509Certificate* obj = nativeObjectFromJSObject(info);
     if( obj == nullptr )
@@ -710,6 +745,51 @@ void NJSX509Certificate::PrivateKey(const FunctionCallbackInfo<Value>& info)
     }
 }
 
+void NJSX509Certificate::SetPrivateKey(const FunctionCallbackInfo<Value>& info)
+{
+    NJSX509Certificate* obj = nativeObjectFromJSObject(info);
+    if( obj == nullptr )
+    {
+        return;
+    }
+    
+    Isolate* isolate = info.GetIsolate();
+    if( info.Length() == 0 )
+    {
+        isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "Wrong number of arguments.")));
+        return;
+    }
+
+    ::std::string passphrase;
+    if( info.Length() > 1 )
+    {
+        String::Utf8Value passStr(info[1]->ToString());
+        if( passStr.length() > 0 )
+        {
+            passphrase.append(*passStr, passStr.length());
+        }
+    }
+    
+    bool ok = CallWithRawDataRepresentation(info[0], [&passphrase, obj, isolate](const char* pemData, size_t dataLength) -> bool {
+        EVP_PKEY* pk = newPrivateKeyFromPEM(pemData, dataLength, passphrase.c_str());
+        if( pk == nullptr )
+        {
+            std::string temp = "PrivateKey parse: ";
+            temp += ERR_error_string(ERR_get_error(), nullptr);
+            isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, temp.c_str())));
+            return false;
+        }
+        obj->setPrivateKey(pk);
+        EVP_PKEY_free(pk);
+        return true;
+    });
+
+    if( ok )
+    {
+        info.GetReturnValue().Set(obj->getPrivateKey() != nullptr);
+    }
+}
+
 #if __clang__
 #pragma mark - JS methods exported by NJSX509 module.
 #endif
@@ -728,7 +808,7 @@ void NJSX509Certificate::ParseCertificateStore(const FunctionCallbackInfo<Value>
     Local<Array> certArray = Array::New(isolate);
     
     // Try to populate array certificate objects.
-    CallWithRawDataRepresentation(args[0], [&certArray, certFormat, isolate](const char* dataPtr, size_t dataLen) -> void {
+    CallWithRawDataRepresentation(args[0], [&certArray, certFormat, isolate](const char* dataPtr, size_t dataLen) -> bool {
         uint32_t idx = 0;
         auto action = [&certArray, &idx, isolate](X509* c) -> void {
             NJSX509Certificate* obj = new NJSX509Certificate(c);
@@ -742,25 +822,22 @@ void NJSX509Certificate::ParseCertificateStore(const FunctionCallbackInfo<Value>
             if( instance.IsEmpty() )
             {
                 delete obj;
+                return;
             }
-            else
-            {
-                certArray->Set(idx++, instance.ToLocalChecked());
-            }
+            certArray->Set(idx++, instance.ToLocalChecked());
         };
         
         switch( certFormat )
         {
             case CertificateDataFormat::PEM:
-                parseCertificateStorePEM(dataPtr, dataLen, action);
-                break;
+                return parseCertificateStorePEM(dataPtr, dataLen, action) > 0;
             case CertificateDataFormat::DER:
-                parseCertificateStoreDER(dataPtr, dataLen, action);
+                return parseCertificateStoreDER(dataPtr, dataLen, action) > 0;
                 break;
             case CertificateDataFormat::Base64_DER:
-                parseCertificateStoreBase64DER(dataPtr, dataLen, action);
-                break;
+                return parseCertificateStoreBase64DER(dataPtr, dataLen, action) > 0;
         }
+        return false;
     });
     
     args.GetReturnValue().Set(certArray);
@@ -789,7 +866,7 @@ void NJSX509Certificate::ParsePKCS12(const FunctionCallbackInfo<Value>& args)
     
     // Process PKCS12 data, provided to the parsing utility.
     Local<Object> retObj;
-    auto dataProcessingCallback = [&retObj, &args, certFormat, &passphrase, isolate](const void* dataPtr, size_t dataLen) -> void {
+    auto dataProcessingCallback = [&retObj, &args, certFormat, &passphrase, isolate](const void* dataPtr, size_t dataLen) -> bool {
         NJSX509Certificate* cert = nullptr;
         
         // Handle primary certificate parsed out from PKCS12 blob.
@@ -865,7 +942,7 @@ void NJSX509Certificate::ParsePKCS12(const FunctionCallbackInfo<Value>& args)
             std::string temp = "PKCS12 parse: ";
             temp += ERR_error_string(ERR_get_error(), nullptr);
             isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, temp.c_str())));
-            return;
+            return false;
         }
         
         if( !caList.IsEmpty() )
@@ -876,17 +953,24 @@ void NJSX509Certificate::ParsePKCS12(const FunctionCallbackInfo<Value>& args)
             }
             retObj->Set(String::NewFromUtf8(isolate, "ca"), caList);
         }
+        return true;
     };
     
+    bool rv;
     switch( certFormat )
     {
         case CertificateDataFormat::PEM:
         case CertificateDataFormat::Base64_DER:
-            CallWithBase64Decoder(args[0], dataProcessingCallback);
+            rv = CallWithBase64Decoder(args[0], dataProcessingCallback);
             break;
         case CertificateDataFormat::DER:
-            CallWithRawDataRepresentation(args[0], dataProcessingCallback);
+            rv = CallWithRawDataRepresentation(args[0], dataProcessingCallback);
             break;
+    }
+    
+    if( !rv )
+    {
+        return;
     }
     
     if( retObj.IsEmpty() )
