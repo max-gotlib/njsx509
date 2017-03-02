@@ -15,15 +15,6 @@
 #endif
 
 #include <openssl/x509.h>
-#include <openssl/pem.h>
-
-#if !NDEBUG
-#define X509_up_ref(X)      CRYPTO_add_lock(&((X)->references), 1, CRYPTO_LOCK_X509, __FILE__, __LINE__)
-#define EVP_PKEY_up_ref(X)  CRYPTO_add_lock(&((X)->references), 1, CRYPTO_LOCK_EVP_PKEY, __FILE__, __LINE__)
-#else
-#define X509_up_ref(X)      CRYPTO_add_lock(&((X)->references), 1, CRYPTO_LOCK_X509, "NJS51Maps", __LINE__)
-#define EVP_PKEY_up_ref(X)  CRYPTO_add_lock(&((X)->references), 1, CRYPTO_LOCK_EVP_PKEY, "NJS51Maps", __LINE__)
-#endif
 
 #define V8_DEPRECATION_WARNINGS 1
 
@@ -126,8 +117,9 @@ namespace NJSX509
          * Designated (and the only) constructor for NJSX509Certificate class instances.
          *
          * @param cert OpenSSL wrapper for X509 certificate. Constructor up-references the wrapper, so it may be released (with X509_free() call) by the caller.
+         * @param privateKey OpenSSL wrapper for a private key. Constructor up-references the wrapper, so it may be released (with EVP_PKEY_free() call) by the caller.
          */
-        explicit NJSX509Certificate(X509* cert = nullptr);
+        explicit NJSX509Certificate(X509* cert = nullptr, EVP_PKEY* privateKey = nullptr);
         
         /**
          * Destructor for NJSX509Certificate class instances.
@@ -154,11 +146,14 @@ namespace NJSX509
          * @param pemCertString X509 certificate data in PEM representation.
          * @param dataLength Size of certificate data (in bytes).
          * @return OpenSSL X509 certificate wrapper or null on error.
+         * @note The caller takes a responsibility to release returned certificate.
          */
         static X509* newCertificateFromPEM(const char* pemCertString, size_t dataLength);
         
         /**
          * Parse X509 certificate array from PEM data (certificate store). Each successfully parsed certificate (X509 structure pointer - as OpenSSL X509 certificate wrapper) is fed as the only argument to 'callback' call.
+         *
+         * @tparam CertCallable Callback type for certificate following semantics: void callback(X509* cert). The only callback argument is OpenSSL X509 certificate wrapper.
          *
          * @param pemCertString X509 certificate data in PEM representation.
          * @param dataLength Size of certificate data (in bytes).
@@ -174,6 +169,8 @@ namespace NJSX509
          * @param derCertData X509 certificate data in DER representation.
          * @param dataLength Size of certificate data (in bytes).
          * @return OpenSSL X509 certificate wrapper or null on error.
+         *
+         * @note The caller takes a responsibility to release returned certificate.
          */
         static X509* newCertificateFromDER(const void* derCertData, size_t dataLength);
         
@@ -182,6 +179,8 @@ namespace NJSX509
          *
          * @param bio X509 certificate data provider.
          * @return OpenSSL X509 certificate wrapper or null on error.
+         *
+         * @note The caller takes a responsibility to release returned certificate.
          */
         static X509* newCertificateFromDER(BIO* bio);
 
@@ -191,6 +190,8 @@ namespace NJSX509
          * @param base64DerCertData Base-64 encoded X509 certificate DER representation data.
          * @param dataLength Size of certificate data (in bytes).
          * @return OpenSSL X509 certificate wrapper or null on error.
+         *
+         * @note The caller takes a responsibility to release returned certificate.
          */
         static X509* newCertificateFromBase64DER(const char* base64DerCertData, size_t dataLength);
         
@@ -200,6 +201,8 @@ namespace NJSX509
          * @param derCertData X509 certificate data in DER representation.
          * @param dataSize Size of certificate data (in bytes).
          * @return OpenSSL X509 certificate wrapper or null on error.
+         *
+         * @note The caller takes a responsibility to release returned certificate.
          */
         static X509* newCertificateFromDERInc(const void*& derCertData, size_t& dataSize);
         
@@ -207,16 +210,19 @@ namespace NJSX509
          * Parse X509 certificate array from DER data (concatenated DER-encoded certificate stream).
          *
          * @tparam CertCallable Callback type following semantics: void callback(X509* cert). The only callback argument is OpenSSL X509 certificate wrapper.
+         *
          * @param derCertData X509 certificate store data, consisting of concatenated DER certificate representations.
          * @param dataLength Size of certificate store data (in bytes).
          * @param callback Callback object to call with successfully parsed certificates.
-         * @return Numer of successfully parsed X509 certificates.
+         * @return Number of successfully parsed X509 certificates.
          */
         template <typename CertCallable>
         static int parseCertificateStoreDER(const void* derCertData, size_t dataLength, CertCallable callback);
         
         /**
          * Parse X509 certicate array from Base-64 encoded DER data (concatenated DER-encoded certificate stream).
+         *
+         * @tparam CertCallable Callback type following semantics: void callback(X509* cert). The only callback argument is OpenSSL X509 certificate wrapper.
          *
          * @param base64DerCertData X509 certificate store data, consisting of concatenated DER certificate representations.
          * @param dataLength Size of certificate store data (in bytes).
@@ -228,11 +234,23 @@ namespace NJSX509
         
         /**
          * Parse PKCS12 bag into X509 certificate, private key and a list of ancestor X509 certificates.
+         *
+         * @tparam CertCallable Callback type for primary (client) certificate following semantics: void callback(X509* cert). The only callback argument is OpenSSL X509 certificate wrapper.
+         * @tparam PrivateKeyCallable Callback type for private key following semantics: void callback(EVP_PKEY* key). The only callback argument is OpenSSL primary key wrapper.
+         * @tparam CACertCallable Callback type for ancestor (CA) certificates following semantics: void callback(X509* cert). The only callback argument is OpenSSL X509 certificate wrapper.
+         *
+         * @param pkcs12Data PKCS12 blob data (DER).
+         * @param dataLength Size of (in bytes) of PKCS12 data blob.
+         * @param passphrase Passphrase for decrypting PKCS12 secure bag.
+         * @param certCallback Callback, fed with primary certificate.
+         * @param pkCallback Callback, fed with private key.
+         * @param caCallback Callback, fed with secondary (ancestor) certificates (one call per each certiicate).
+         *
+         * @note It guaranteed, that if given PKCS12 bag has a certificate definition, then certCallback is called first (before other callbacks).
+         * @note Certificate, private key and CA certificates, presented via callbacks, are released upon function return.
          */
-        
-        /**
-         * Parse Base-64 encoded PKCS12 bag into X509 certificate, private key and a list of ancestor X509 certificates.
-         */
+        template <typename CertCallable, typename PrivateKeyCallable, typename CACertCallable>
+        static bool parsePKCS12(const void* pkcs12Data, size_t dataLength, const char* passphrase, CertCallable certCallback, PrivateKeyCallable pkCallback, CACertCallable caCallback);
         
     public:     // X509 certificate attribute accessor methods.
         
@@ -285,19 +303,53 @@ namespace NJSX509
          * Compose PEM encoded RSA private key, encrypted with given passphrase, represented by a zero-terminated string and feed it to caller supplied callback.
          *
          * @tparam StringCallable Callback prototype: void callback(const char* pkData, size_t pkLen).
+         * @param passphrase Passphrase for private key encryption.
+         * @param passphraseLength Length (in bytes) of the passphrase.
          * @param callback Callback callable to feed with encrypted private key PEM representation data.
          * @return True on successfully composed private key representation.
          */
         template <typename StringCallable>
-        bool copyPrivateKey(const char* passphrase, size_t passphraseLength, StringCallable callback) const;
+        static bool copyPrivateKey(EVP_PKEY* privateKey, const char* passphrase, size_t passphraseLength, StringCallable callback);
+        
+        /**
+         * Getter for private key attribute of the certificate.
+         *
+         * @return Private key OpenSSL wrapper or null if no private key was defined.
+         */
+        inline EVP_PKEY* getPrivateKey() const
+        {
+            return privateKey_;
+        }
+        
+        /**
+         * Define private key attribute to the certificate.
+         * 
+         * @param pk Private key OpenSSL wrapper. This method up-refs the pk wrapper, so it may be released by the caller right after return.
+         */
+        void setPrivateKey(EVP_PKEY* pk);
 
     protected:  // Helper (utility) methods.
         
         /**
          * Helper method for presented JS value as raw data and feed it to a caller supplied functor.
          * Provided JS value should be a String or convertible to String object (in that case it's UTF-8 representation is used), either Node.Buffer object.
+         * Provided value content is expected to be UTF-8 string representing Base-64 encoded data blob.
          *
          * @tparam CallableWithRawData Raw data callback prototype, having the following semantics: void callback(const void* data, size_t size).
+         *
+         * @param val JS value, whose raw data representation should be fed to a functor.
+         * @param callback Functor to call with raw data representation for given JS value.
+         * @return True on successfully
+         */
+        template <typename CallableWithRawData>
+        static bool CallWithBase64Decoder(Local<Value> val, CallableWithRawData callback);
+        
+        /**
+         * Helper method for presented JS value as raw data and feed it to a caller supplied functor.
+         * Provided JS value should be a String or convertible to String object (in that case it's UTF-8 representation is used), either Node.Buffer object.
+         *
+         * @tparam CallableWithRawData Raw data callback prototype, having the following semantics: void callback(const void* data, size_t size).
+         *
          * @param val JS value, whose raw data representation should be fed to a functor.
          * @param callback Functor to call with raw data representation for given JS value.
          * @return True on successfully
@@ -311,7 +363,7 @@ namespace NJSX509
          *
          * @param args Function argument list.
          * @param minNumberOfArguments Minimum number of arguments, expected by the function.
-         * @param typeArgumentIndex Index of the data type function argument.
+         * @param typeArgumentIndex Index of the data type function argument. If negavice integer passed, then type argument is considered to be the last one.
          * @param certFormat On return, is assigned with guessed data type code.
          * @return True, if argument list constrains are satisfied for the function.
          */
@@ -323,9 +375,10 @@ namespace NJSX509
          * @param isolate Isolated instance of the V8 engine for new JS object.
          * @param argc Constructor function argument count.
          * @param argv Constructor function argument array.
+         * @param wrappedObject Native (C++) object pointer to wrap within JS object.
          * @return JS object instance with NJSX509Certificate prototype.
          */
-        static MaybeLocal<Object> NewJSInstance(Isolate* isolate, unsigned argc = 0, Local<Value> argv[] = nullptr);
+        static MaybeLocal<Object> NewJSInstance(Isolate* isolate, unsigned argc = 0, Local<Value> argv[] = nullptr, NJSX509Certificate* wrappedObject = nullptr);
 
         /**
          * Helper method for instantiating JS object with NJSX509Certificate prototype. Prepares argument list, calls NewJSInstance() and packs result into constructor function parameter list info.
@@ -420,10 +473,25 @@ namespace NJSX509
          *          'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
          *  Return value by JS method is an array of NJSX509Certificate objects. Parsing error causes a JS exception thrown and undefined value returned.
          *
-         * @param args JS accessor function parameter list info.
+         * @param args JS function parameter list info.
          */
         static void ParseCertificateStore(const FunctionCallbackInfo<Value>& args);
         
+        /**
+         * Ad-on exported method for parsing PKCS12 client certificate.
+         * It is expected, that JS method will ve called with the following arguments:
+         *      data - Certificate store data in one of supported formats, represented as a String or Node Buffer objet;
+         *      fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
+         *          'pem' - PEM representation - concatenation of PEM represented certificates; data parameter may be String or Node.Buffer.
+         *          'der' - DER representation - concatenation of DER represented certificates; data parameter should be Node.Buffer.
+         *          'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
+         *  Return value by JS method is a JS object with the following properties:
+         *      'certificate' - 
+         *      'ca' - An array of NJSX509Certificate objects, representing ancestor certificates.
+         *  Parsing error causes a JS exception thrown and undefined value returned.
+         *
+         * @param args JS function parameter list info.
+         */
         static void ParsePKCS12(const FunctionCallbackInfo<Value>& args);
         
         static void IssueCertificate(const FunctionCallbackInfo<Value>& args);

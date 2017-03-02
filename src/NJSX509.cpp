@@ -8,6 +8,20 @@
 
 #include "NJSX509.h"
 
+#if __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdocumentation"
+#endif
+
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+
+#if __clang__
+#pragma clang diagnostic pop
+#endif
+
+#include <string>
+
 using namespace NJSX509;
 
 using v8::FunctionCallbackInfo;
@@ -38,9 +52,9 @@ Persistent<Function> NJSX509Certificate::constructor_;
 #pragma mark - X509Certificate implementation
 #endif
 
-NJSX509Certificate::NJSX509Certificate(X509* cert)
+NJSX509Certificate::NJSX509Certificate(X509* cert, EVP_PKEY* privateKey)
     : x509Certificate_(cert)
-    , privateKey_(nullptr)
+    , privateKey_(privateKey)
     , subject_(nullptr)
     , issuer_(nullptr)
     , commonName_(nullptr)
@@ -48,6 +62,10 @@ NJSX509Certificate::NJSX509Certificate(X509* cert)
     if( x509Certificate_ != nullptr )
     {
         X509_up_ref(x509Certificate_);
+    }
+    if( privateKey_ != nullptr )
+    {
+        EVP_PKEY_up_ref(privateKey_);
     }
 }
 
@@ -273,6 +291,23 @@ time_t NJSX509Certificate::getNotValidAfter() const
     return mktime(&tm);
 }
 
+void NJSX509Certificate::setPrivateKey(EVP_PKEY* pk)
+{
+    if( privateKey_ == pk )
+    {
+        return;
+    }
+    if( privateKey_ != nullptr )
+    {
+        EVP_PKEY_free(privateKey_);
+    }
+    privateKey_ = pk;
+    if( privateKey_ != nullptr )
+    {
+        EVP_PKEY_up_ref(privateKey_);
+    }
+}
+
 #if __clang__
 #pragma mark - Utility methods.
 #endif
@@ -417,8 +452,6 @@ static int __compareASN1Time(ASN1_TIME* t1, ASN1_TIME* t2, bool subDayPrecision)
 
 bool NJSX509Certificate::CheckArguments(const FunctionCallbackInfo<Value>& args, int minNumberOfArguments, int typeArgumentIndex, CertificateDataFormat& certFormat)
 {
-    assert(typeArgumentIndex >= 0);
-    
     certFormat = CertificateDataFormat::PEM;
     Isolate* isolate = args.GetIsolate();
     if( args.Length() < minNumberOfArguments )
@@ -430,6 +463,14 @@ bool NJSX509Certificate::CheckArguments(const FunctionCallbackInfo<Value>& args,
     if( typeArgumentIndex >= args.Length() )
     {
         return true;
+    }
+    if( typeArgumentIndex < 0 )
+    {
+        typeArgumentIndex = args.Length() - 1;
+        if( typeArgumentIndex < 0 )
+        {
+            return true;
+        }
     }
     
     String::Utf8Value typeStr(args[typeArgumentIndex]->ToString());
@@ -494,12 +535,27 @@ void NJSX509Certificate::Init(Local<Object> exports)
     NODE_SET_METHOD(exports, "importPKCS12", ParsePKCS12);
 }
 
-MaybeLocal<Object> NJSX509Certificate::NewJSInstance(Isolate* isolate, unsigned argc, Local<Value> argv[])
+MaybeLocal<Object> NJSX509Certificate::NewJSInstance(Isolate* isolate, unsigned argc, Local<Value> argv[], NJSX509Certificate* wrappedObject)
 {
     // Call constructor method.
     Local<Function> cons = Local<Function>::New(isolate, constructor_);
     Local<Context> context = isolate->GetCurrentContext();
+    
     MaybeLocal<Object> instance = cons->NewInstance(context, argc, argv);
+    if( instance.IsEmpty() )
+    {
+        return instance;
+    }
+    
+    // Try to wrap the result.
+    if( wrappedObject != nullptr )
+    {
+        wrappedObject->Wrap(instance.ToLocalChecked());
+        return instance;
+    }
+    
+    // Set null wrapped object pointer.
+    instance.ToLocalChecked()->SetAlignedPointerInInternalField(0, nullptr);
     return instance;
 }
 
@@ -521,14 +577,13 @@ void NJSX509Certificate::NewInstance(const FunctionCallbackInfo<Value>& args)
     
     // Call constructor method.
     MaybeLocal<Object> instance = NewJSInstance(isolate, argc, argv);
-    Local<Object> result;
-    if( !instance.ToLocal(&result) )
+    if( instance.IsEmpty() )
     {
         args.GetReturnValue().SetUndefined();
     }
     else
     {
-        args.GetReturnValue().Set(result);
+        args.GetReturnValue().Set(instance.ToLocalChecked());
     }
 }
 
@@ -549,7 +604,9 @@ void NJSX509Certificate::New(const FunctionCallbackInfo<Value>& args)
     // Special case - constructor called with no arguments.
     if( args.Length() == 0 )
     {
-        args.GetReturnValue().Set(args.This());
+        Local<Object> _self = args.This();
+        _self->SetAlignedPointerInInternalField(0, nullptr);
+        args.GetReturnValue().Set(_self);
         return;
     }
     
@@ -636,7 +693,7 @@ void NJSX509Certificate::PrivateKey(const FunctionCallbackInfo<Value>& info)
     }
     String::Utf8Value passStr(passArg->ToString());
 
-    bool ok = obj->copyPrivateKey(*passStr, passStr.length(), [info](const char* pk, size_t /* pkLen */) {
+    bool ok = copyPrivateKey(obj->getPrivateKey(), *passStr, passStr.length(), [info](const char* pk, size_t /* pkLen */) {
         if( pk != nullptr )
         {
             info.GetReturnValue().Set(String::NewFromUtf8(info.GetIsolate(), pk));
@@ -681,16 +738,14 @@ void NJSX509Certificate::ParseCertificateStore(const FunctionCallbackInfo<Value>
             }
             
             // Wrap native certificate object with JS object.
-            MaybeLocal<Object> instance = NewJSInstance(isolate);
-            Local<Object> result;
-            if( !instance.ToLocal(&result) )
+            MaybeLocal<Object> instance = NewJSInstance(isolate, 0, nullptr, obj);
+            if( instance.IsEmpty() )
             {
                 delete obj;
             }
             else
             {
-                obj->Wrap(result);
-                certArray->Set(idx++, result);
+                certArray->Set(idx++, instance.ToLocalChecked());
             }
         };
         
@@ -713,14 +768,141 @@ void NJSX509Certificate::ParseCertificateStore(const FunctionCallbackInfo<Value>
 
 void NJSX509Certificate::ParsePKCS12(const FunctionCallbackInfo<Value>& args)
 {
-#warning Implemente me!!!!
+    // Check the number of arguments passed and deduce input data format.
+    CertificateDataFormat certFormat = CertificateDataFormat::PEM;
+    if( !CheckArguments(args, 1, -1, certFormat) )
+    {
+        return;
+    }
+
+    // Define a passphrase for PKCS12 bag decryption.
+    auto* isolate = args.GetIsolate();
+    ::std::string passphrase;
+    if( args.Length() > 1 )
+    {
+        String::Utf8Value passstring(args[1]->ToString());
+        if( passstring.length() > 0 )
+        {
+            passphrase.append(*passstring, passstring.length());
+        }
+    }
+    
+    // Process PKCS12 data, provided to the parsing utility.
+    Local<Object> retObj;
+    auto dataProcessingCallback = [&retObj, &args, certFormat, &passphrase, isolate](const void* dataPtr, size_t dataLen) -> void {
+        NJSX509Certificate* cert = nullptr;
+        
+        // Handle primary certificate parsed out from PKCS12 blob.
+        auto certCallback = [&retObj, &cert, isolate](X509* c) -> void {
+            assert(cert == nullptr);
+            cert = new NJSX509Certificate(c);
+            assert(cert != nullptr);
+            if( cert == nullptr )
+            {
+                return;
+            }
+            
+            // Wrap native certificate object with JS object.
+            MaybeLocal<Object> instance = NewJSInstance(isolate, 0, nullptr, cert);
+            if( instance.IsEmpty() )
+            {
+                delete cert;
+                return;
+            }
+
+            assert(retObj.IsEmpty());
+            if( retObj.IsEmpty() )
+            {
+                retObj = Object::New(isolate);
+            }
+            
+            retObj->Set(String::NewFromUtf8(isolate, "certificate"), instance.ToLocalChecked());
+        };
+        
+        // Handle primary key parsed out from PKCS12 blob.
+        auto pkCallback = [&retObj, &cert, &passphrase, isolate](EVP_PKEY* pk) -> void {
+            if( cert != nullptr )
+            {
+                cert->setPrivateKey(pk);
+            }
+            copyPrivateKey(pk, passphrase.c_str(), passphrase.length(), [&retObj, isolate](const char* pemPK, size_t pemLength) {
+                if( retObj.IsEmpty() )
+                {
+                    retObj = Object::New(isolate);
+                }
+                retObj->Set(String::NewFromUtf8(isolate, "pk"), String::NewFromUtf8(isolate, pemPK));
+            });
+        };
+        
+        // Handle ancestor (CA) certificate(s) certificates parsed out from PKCS12 blob.
+        int caCount = 0;
+        Local<Array> caList;
+        auto caCallback = [&retObj, &caList, &caCount, isolate](X509* c) -> void {
+            auto* cert = new NJSX509Certificate(c);
+            assert(cert != nullptr);
+            if( cert == nullptr )
+            {
+                return;
+            }
+            
+            // Wrap native certificate object with JS object.
+            MaybeLocal<Object> instance = NewJSInstance(isolate, 0, nullptr, cert);
+            if( instance.IsEmpty() )
+            {
+                delete cert;
+                return;
+            }
+
+            if( caList.IsEmpty() )
+            {
+                caList = Array::New(isolate);
+            }
+            caList->Set(caCount++, instance.ToLocalChecked());
+        };
+        
+        if( !parsePKCS12(dataPtr, dataLen, passphrase.c_str(), certCallback, pkCallback, caCallback) )
+        {
+            std::string temp = "PKCS12 parse: ";
+            temp += ERR_error_string(ERR_get_error(), nullptr);
+            isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, temp.c_str())));
+            return;
+        }
+        
+        if( !caList.IsEmpty() )
+        {
+            if( retObj.IsEmpty() )
+            {
+                retObj = Object::New(isolate);
+            }
+            retObj->Set(String::NewFromUtf8(isolate, "ca"), caList);
+        }
+    };
+    
+    switch( certFormat )
+    {
+        case CertificateDataFormat::PEM:
+        case CertificateDataFormat::Base64_DER:
+            CallWithBase64Decoder(args[0], dataProcessingCallback);
+            break;
+        case CertificateDataFormat::DER:
+            CallWithRawDataRepresentation(args[0], dataProcessingCallback);
+            break;
+    }
+    
+    if( retObj.IsEmpty() )
+    {
+        args.GetReturnValue().SetUndefined();
+    }
+    else
+    {
+        args.GetReturnValue().Set(retObj);
+    }
 }
 
 void NJSX509Certificate::IssueCertificate(const FunctionCallbackInfo<Value>& args)
 {
-#warning Implemente me!!!!
+#warning Implement me!!!!
 }
-
 
 #if __clang__
 #pragma mark - NJSX509 Module declaration.
@@ -728,6 +910,8 @@ void NJSX509Certificate::IssueCertificate(const FunctionCallbackInfo<Value>& arg
 
 static void __NJSX509_init(Local<Object> exports)
 {
+    SSL_library_init();    
+    SSL_load_error_strings();
     NJSX509Certificate::Init(exports);
 }
 

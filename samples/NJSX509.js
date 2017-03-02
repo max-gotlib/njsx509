@@ -7,6 +7,14 @@ try {
 }
 
 var cert
+
+try {
+    cert = new njsX509.NJSX509Certificate();
+    console.log(cert);
+} catch(e) {
+    console.error(e);
+}
+
 try {
 //    cert = njsX509.X509CertificateFromDER(10);
 //    cert = new njsX509.NJSX509Certificate(3);
@@ -34,6 +42,18 @@ try {
 //        console.log(c.subjectName);
 //        console.log(c.commonName);
 //    }
+} catch(e) {
+    console.error(e);
+}
+
+try {
+    var certData = fs.readFileSync('client.identity');
+    let rv = njsX509.importPKCS12(certData, "ipad", "der");
+    console.log(rv);
+    
+    certData = fs.readFileSync('client.b64');
+    rv = njsX509.importPKCS12(certData, "ipad", "pem");
+    console.log(rv);
 } catch(e) {
     console.error(e);
 }

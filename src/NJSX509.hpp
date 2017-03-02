@@ -11,6 +11,17 @@
 
 #include "NJSX509.h"
 
+#include <openssl/pem.h>
+#include <openssl/pkcs12.h>
+
+#if !NDEBUG
+#  define X509_up_ref(X)      CRYPTO_add_lock(&((X)->references), 1, CRYPTO_LOCK_X509, __FILE__, __LINE__)
+#  define EVP_PKEY_up_ref(X)  CRYPTO_add_lock(&((X)->references), 1, CRYPTO_LOCK_EVP_PKEY, __FILE__, __LINE__)
+#else /* NDEBUG */
+#  define X509_up_ref(X)      CRYPTO_add_lock(&((X)->references), 1, CRYPTO_LOCK_X509, "NJS51Maps", __LINE__)
+#  define EVP_PKEY_up_ref(X)  CRYPTO_add_lock(&((X)->references), 1, CRYPTO_LOCK_EVP_PKEY, "NJS51Maps", __LINE__)
+#endif /* !NDEBUG */
+
 namespace NJSX509 {
 
     template <typename CallableWithRawData>
@@ -42,6 +53,74 @@ namespace NJSX509 {
         return false;
     }
 
+    template <typename CallableWithRawData>
+    bool NJSX509Certificate::CallWithBase64Decoder(Local<Value> val, CallableWithRawData callback)
+    {
+        if( val.IsEmpty() )
+        {
+            return false;
+        }
+        
+        auto base64DataCallback = [&callback](const void* data, size_t sz) -> bool {
+            BIO* bmemIn = BIO_new_mem_buf((char*)data, (int)sz);
+            assert(bmemIn != nullptr);
+            if( bmemIn == nullptr )
+            {
+                return false;
+            }
+
+            BIO* b64 = BIO_new(BIO_f_base64());
+            if( b64 == nullptr )
+            {
+                BIO_free_all(bmemIn);
+                return false;
+            }
+            BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+            bmemIn = BIO_push(b64, bmemIn);
+
+            BIO* bmemOut = BIO_new(BIO_s_mem());
+            if( bmemOut == nullptr )
+            {
+                BIO_free_all(bmemIn);
+                return false;
+            }
+
+            char inbuf[512];
+            int inlen;
+            while( (inlen = BIO_read(b64, inbuf, 512)) > 0 )
+            {
+                BIO_write(bmemOut, inbuf, inlen);
+            }
+            
+            const char* rawDataPtr = nullptr;
+            size_t rawDataSize = BIO_get_mem_data(bmemOut, &rawDataPtr);
+
+            callback(rawDataPtr, rawDataSize);
+            
+            BIO_free_all(bmemIn);
+            BIO_free(bmemOut);
+            return true;
+        };
+        
+        if( node::Buffer::HasInstance(val) )
+        {
+            const char* dataPtr = node::Buffer::Data(val);
+            size_t dataLen = node::Buffer::Length(val);
+            if( dataPtr != nullptr || dataLen )
+            {
+                return base64DataCallback(dataPtr, dataLen);
+            }
+        }
+        
+        String::Utf8Value utf8Val(val);
+        if( utf8Val.length() > 0 )
+        {
+            return base64DataCallback(*utf8Val, utf8Val.length());
+        }
+        
+        return false;
+    }
+
     template <class MethodCallInfo>
     NJSX509Certificate* NJSX509Certificate::nativeObjectFromJSObject(const MethodCallInfo& info)
     {
@@ -58,7 +137,6 @@ namespace NJSX509 {
         }
         
         NJSX509Certificate* obj = ObjectWrap::Unwrap<NJSX509Certificate>(_self);
-        assert(obj != nullptr);
         return obj;
     }
     
@@ -206,6 +284,61 @@ namespace NJSX509 {
         return count;
     }
 
+    template <typename CertCallable, typename PrivateKeyCallable, typename CACertCallable>
+    bool NJSX509Certificate::parsePKCS12(const void* pkcs12Data, size_t dataLength, const char* passphrase, CertCallable certCallback, PrivateKeyCallable pkCallback, CACertCallable caCallback)
+    {
+        assert(pkcs12Data != nullptr);
+        assert(dataLength > 0);
+        if( pkcs12Data == nullptr || dataLength == 0 )
+        {
+            return false;
+        }
+
+        auto dPtr = reinterpret_cast<const unsigned char*>(pkcs12Data);
+        PKCS12* pkcsBag = d2i_PKCS12(nullptr, &dPtr, dataLength);
+        if( pkcsBag == nullptr )
+        {
+            return false;
+        }
+        
+        EVP_PKEY* pk = nullptr;
+        X509* cert = nullptr;
+        STACK_OF(X509)* ca = nullptr;
+        bool rv = PKCS12_parse(pkcsBag, passphrase, &pk, &cert, &ca) == 1;
+        PKCS12_free(pkcsBag);
+        if( !rv )
+        {
+            return false;
+        }
+        
+        if( cert != nullptr )
+        {
+            certCallback(cert);
+            X509_free(cert);
+        }
+        
+        if( pk != nullptr )
+        {
+            pkCallback(pk);
+            EVP_PKEY_free(pk);
+        }
+        
+        if( ca != nullptr )
+        {
+            for( auto i = 0; i < sk_X509_num(ca); i++)
+            {
+                X509* c = sk_X509_value(ca, i);
+                if( c != nullptr )
+                {
+                    caCallback(c);
+                }
+            }
+            sk_X509_pop_free(ca, X509_free);
+        }
+
+        return true;
+    }
+
     template <typename StringCallable>
     bool NJSX509Certificate::copyPublicKey(StringCallable callback) const
     {
@@ -240,9 +373,9 @@ namespace NJSX509 {
     }
     
     template <typename StringCallable>
-    bool NJSX509Certificate::copyPrivateKey(const char* passphrase, size_t passphraseLength, StringCallable callback) const
+    bool NJSX509Certificate::copyPrivateKey(EVP_PKEY* privateKey, const char* passphrase, size_t passphraseLength, StringCallable callback)
     {
-        if( privateKey_ == nullptr )
+        if( privateKey == nullptr )
         {
             return false;
         }
@@ -263,9 +396,9 @@ namespace NJSX509 {
         {
             passphraseLength = ::strlen(passphrase);
         }
-        PEM_write_bio_PrivateKey(mbio, privateKey_, EVP_aes_256_cbc(), (unsigned char*)passphrase, (int)passphraseLength, nullptr, nullptr);
+        PEM_write_bio_PrivateKey(mbio, privateKey, EVP_aes_256_cbc(), (unsigned char*)passphrase, (int)passphraseLength, nullptr, nullptr);
         BIO_write(mbio, "\0", 1);
-        
+
         const char* pkPtr = nullptr;
         size_t pkLen = BIO_get_mem_data(mbio, &pkPtr);
         callback(pkPtr, pkLen);
