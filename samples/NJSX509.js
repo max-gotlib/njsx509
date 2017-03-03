@@ -27,12 +27,12 @@ try {
     console.error(e);
 }
 
-return
-
 try {
     console.log('============================================================');
     let identData = fs.readFileSync('client.identity');
     let rv = njsX509.importPKCS12(identData, 'ipad', 'der');
+    console.log(rv);
+    console.log('=======================');
     cert = rv.certificate;
     console.log(cert);
     console.log('=======================');
@@ -48,6 +48,8 @@ try {
 } catch(e) {
     console.error(e);
 }
+
+return
 
 try {
 //    let identData = fs.readFileSync('client.identity');

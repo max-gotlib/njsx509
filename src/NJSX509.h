@@ -376,24 +376,24 @@ namespace NJSX509
         /**
          * Compose PEM encoded RSA public key, represented by a zero-terminated string, and feed it to caller supplied callback.
          *
-         * @tparam StringCallable Callback prototype: void callback(const char* pkData, size_t pkLen).
+         * @tparam StringBIOCallable Callback prototype: void callback(BIO* mbio).
          * @param callback Callback callable to feed with public key PEM representation data.
          * @return True on successfully composed public key representation.
          */
-        template <typename StringCallable>
-        bool copyPublicKey(StringCallable callback) const;
+        template <typename StringBIOCallable>
+        bool copyPublicKey(StringBIOCallable callback) const;
         
         /**
          * Compose PEM encoded RSA private key, encrypted with given passphrase, represented by a zero-terminated string and feed it to caller supplied callback.
          *
-         * @tparam StringCallable Callback prototype: void callback(const char* pkData, size_t pkLen).
+         * @tparam StringBIOCallable Callback prototype: void callback(BIO* mbio).
          * @param passphrase Passphrase for private key encryption.
          * @param passphraseLength Length (in bytes) of the passphrase.
          * @param callback Callback callable to feed with encrypted private key PEM representation data.
          * @return True on successfully composed private key representation.
          */
-        template <typename StringCallable>
-        static bool copyPrivateKey(EVP_PKEY* privateKey, const char* passphrase, size_t passphraseLength, StringCallable callback);
+        template <typename StringBIOCallable>
+        static bool copyPrivateKey(EVP_PKEY* privateKey, const char* passphrase, size_t passphraseLength, StringBIOCallable callback);
         
         /**
          * Getter for private key attribute of the certificate.

@@ -342,8 +342,8 @@ namespace NJSX509 {
         return true;
     }
 
-    template <typename StringCallable>
-    bool NJSX509Certificate::copyPublicKey(StringCallable callback) const
+    template <typename StringBIOCallable>
+    bool NJSX509Certificate::copyPublicKey(StringBIOCallable callback) const
     {
         if( x509Certificate_ == nullptr )
         {
@@ -367,16 +367,14 @@ namespace NJSX509 {
         EVP_PKEY_free(pk);
         BIO_write(mbio, "\0", 1);
         
-        const char* pkPtr = nullptr;
-        size_t pkLen = BIO_get_mem_data(mbio, &pkPtr);
-        callback(pkPtr, pkLen);
+        callback(mbio);
 
         BIO_free(mbio);
         return true;
     }
     
-    template <typename StringCallable>
-    bool NJSX509Certificate::copyPrivateKey(EVP_PKEY* privateKey, const char* passphrase, size_t passphraseLength, StringCallable callback)
+    template <typename StringBIOCallable>
+    bool NJSX509Certificate::copyPrivateKey(EVP_PKEY* privateKey, const char* passphrase, size_t passphraseLength, StringBIOCallable callback)
     {
         if( privateKey == nullptr )
         {
@@ -402,9 +400,7 @@ namespace NJSX509 {
         PEM_write_bio_PrivateKey(mbio, privateKey, EVP_aes_256_cbc(), (unsigned char*)passphrase, (int)passphraseLength, nullptr, nullptr);
         BIO_write(mbio, "\0", 1);
 
-        const char* pkPtr = nullptr;
-        size_t pkLen = BIO_get_mem_data(mbio, &pkPtr);
-        callback(pkPtr, pkLen);
+        callback(mbio);
         
         BIO_free(mbio);
         return true;

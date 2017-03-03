@@ -1001,15 +1001,28 @@ void NJSX509Certificate::PublicKey(Local<String> __unused property, const Proper
         return;
     }
     
-    bool ok = obj->copyPublicKey([info](const char* pk, size_t /* pkLen */) {
-        if( pk != nullptr )
-        {
-            info.GetReturnValue().Set(String::NewFromUtf8(info.GetIsolate(), pk));
-        }
-        else
+    bool ok = obj->copyPublicKey([info](BIO* mbio) {
+        assert(mbio != nullptr);
+        
+        BUF_MEM* mbufPtr;
+        BIO_get_mem_ptr(mbio, &mbufPtr);
+        BIO_set_close(mbio, BIO_NOCLOSE); /* So BIO_free() leaves BUF_MEM alone */
+        
+        if( mbufPtr == nullptr )
         {
             info.GetReturnValue().SetUndefined();
+            return;
         }
+        
+        MemBIOBufferStringResource* retResource = new MemBIOBufferStringResource(mbufPtr);
+        assert(retResource != nullptr);
+        if( retResource == nullptr )
+        {
+            info.GetReturnValue().SetUndefined();
+            return;
+        }
+        
+        info.GetReturnValue().Set(String::NewExternal(info.GetIsolate(), retResource));
     });
 
     if( !ok )
@@ -1033,15 +1046,28 @@ void NJSX509Certificate::GetPrivateKey(const FunctionCallbackInfo<Value>& info)
     }
     String::Utf8Value passStr(passArg->ToString());
 
-    bool ok = copyPrivateKey(obj->getPrivateKey(), *passStr, passStr.length(), [info](const char* pk, size_t /* pkLen */) {
-        if( pk != nullptr )
-        {
-            info.GetReturnValue().Set(String::NewFromUtf8(info.GetIsolate(), pk));
-        }
-        else
+    bool ok = copyPrivateKey(obj->getPrivateKey(), *passStr, passStr.length(), [info](BIO* mbio) {
+        assert(mbio != nullptr);
+
+        BUF_MEM* mbufPtr;
+        BIO_get_mem_ptr(mbio, &mbufPtr);
+        BIO_set_close(mbio, BIO_NOCLOSE); /* So BIO_free() leaves BUF_MEM alone */
+        
+        if( mbufPtr == nullptr )
         {
             info.GetReturnValue().SetUndefined();
+            return;
         }
+        
+        MemBIOBufferStringResource* retResource = new MemBIOBufferStringResource(mbufPtr);
+        assert(retResource != nullptr);
+        if( retResource == nullptr )
+        {
+            info.GetReturnValue().SetUndefined();
+            return;
+        }
+        
+        info.GetReturnValue().Set(String::NewExternal(info.GetIsolate(), retResource));
     });
     
     if( !ok )
@@ -1621,12 +1647,30 @@ void NJSX509Certificate::ParsePKCS12(const FunctionCallbackInfo<Value>& args)
             {
                 cert->setPrivateKey(pk);
             }
-            copyPrivateKey(pk, passphrase.c_str(), passphrase.length(), [&retObj, isolate](const char* pemPK, size_t pemLength) {
+            copyPrivateKey(pk, passphrase.c_str(), passphrase.length(), [&retObj, isolate](BIO* mbio) {
+                assert(mbio != nullptr);
+                
+                BUF_MEM* mbufPtr;
+                BIO_get_mem_ptr(mbio, &mbufPtr);
+                BIO_set_close(mbio, BIO_NOCLOSE); /* So BIO_free() leaves BUF_MEM alone */
+                
+                if( mbufPtr == nullptr )
+                {
+                    return;
+                }
+                
+                MemBIOBufferStringResource* retResource = new MemBIOBufferStringResource(mbufPtr);
+                assert(retResource != nullptr);
+                if( retResource == nullptr )
+                {
+                    return;
+                }
+                
                 if( retObj.IsEmpty() )
                 {
                     retObj = Object::New(isolate);
                 }
-                retObj->Set(String::NewFromUtf8(isolate, "pk"), String::NewFromUtf8(isolate, pemPK));
+                retObj->Set(String::NewFromUtf8(isolate, "pk"), String::NewExternal(isolate, retResource));
             });
         };
         
