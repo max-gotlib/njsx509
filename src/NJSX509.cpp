@@ -372,7 +372,7 @@ size_t NJSX509Certificate::encryptPublic(const void* inData, size_t inSize, void
         goto done;
     }
     
-    if( EVP_PKEY_encrypt_init(ctx) <= 0 || EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_PADDING) <= 0 )
+    if( EVP_PKEY_encrypt_init(ctx) <= 0 || EVP_PKEY_CTX_set_rsa_padding(ctx, padding) <= 0 )
     {
         goto done;
     }
@@ -445,7 +445,7 @@ size_t NJSX509Certificate::decryptPrivate(const void* inData, size_t inSize, voi
         goto done;
     }
     
-    if( EVP_PKEY_decrypt_init(ctx) <= 0 || EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_PADDING) <= 0 )
+    if( EVP_PKEY_decrypt_init(ctx) <= 0 || EVP_PKEY_CTX_set_rsa_padding(ctx, padding) <= 0 )
     {
         goto done;
     }
