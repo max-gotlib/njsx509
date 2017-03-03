@@ -858,6 +858,7 @@ void NJSX509Certificate::Init(Local<Object> exports)
     NODE_SET_PROTOTYPE_METHOD(tpl, "encryptPublic", EncryptWithPublicKey);
     NODE_SET_PROTOTYPE_METHOD(tpl, "decryptPrivate", DecryptWithPrivateKey);
     NODE_SET_PROTOTYPE_METHOD(tpl, "issueCertificate", IssueCertificate);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "exportCertificate", ExportCertificate);
     
     // Persist constructor function object.
     Local<Function> func = tpl->GetFunction();
@@ -1181,7 +1182,8 @@ void NJSX509Certificate::EncryptWithPublicKey(const FunctionCallbackInfo<Value>&
     assert(outData != nullptr);
     
     auto outBuff = node::Buffer::New(isolate, reinterpret_cast<char*>(outData), outSize, [](char* data, void* hint) {
-        free(data);
+        assert(data != nullptr);
+        ::free(data);
     }, nullptr);
     if( outBuff.IsEmpty() )
     {
@@ -1246,6 +1248,7 @@ void NJSX509Certificate::DecryptWithPrivateKey(const FunctionCallbackInfo<Value>
     assert(outData != nullptr);
     
     auto outBuff = node::Buffer::New(isolate, reinterpret_cast<char*>(outData), outSize, [](char* data, void* hint) {
+        assert(data != nullptr);
         free(data);
     }, nullptr);
     if( outBuff.IsEmpty() )
@@ -1368,6 +1371,142 @@ void NJSX509Certificate::IssueCertificate(const FunctionCallbackInfo<Value>& inf
     }
 
     info.GetReturnValue().Set(instance.ToLocalChecked());
+}
+
+void NJSX509Certificate::ExportCertificate(const FunctionCallbackInfo<Value>& info)
+{
+    NJSX509Certificate* obj = nativeObjectFromJSObject(info);
+    if( obj == nullptr )
+    {
+        return;
+    }
+    
+    Isolate* isolate = info.GetIsolate();
+    if( obj->x509Certificate_ == nullptr )
+    {
+        isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "Export: incomplete certificate.")));
+        return;
+    }
+
+    // Check the number of arguments passed and prepare certificate instantiation parameters.
+    CertificateDataFormat certFormat = CertificateDataFormat::PEM;
+    if( !CheckArguments(info, 0, -1, certFormat) )
+    {
+        return;
+    }
+
+    Local<Value> outCert;
+    switch( certFormat ) {
+        case CertificateDataFormat::PEM:
+        {
+            BIO* mbio = BIO_new(BIO_s_mem());
+            if( mbio == nullptr )
+            {
+                break;
+            }
+            
+            PEM_write_bio_X509(mbio, obj->x509Certificate_);
+            BIO_write(mbio, "\0", 1);
+
+            BUF_MEM* bufPtr;
+            BIO_get_mem_ptr(mbio, &bufPtr);
+            BIO_set_close(mbio, BIO_NOCLOSE); /* So BIO_free() leaves BUF_MEM alone */
+            BIO_free(mbio);
+
+            if( bufPtr != nullptr )
+            {
+                MemBIOBufferStringResource* retResource = new MemBIOBufferStringResource(bufPtr);
+                assert(retResource != nullptr);
+                if( retResource == nullptr )
+                {
+                    BUF_MEM_free(bufPtr);
+                    break;
+                }
+                outCert = String::NewExternal(isolate, retResource);
+            }
+            break;
+        }
+        case CertificateDataFormat::DER:
+        case CertificateDataFormat::Base64_DER:
+        {
+            int bufSize = i2d_X509(obj->x509Certificate_, NULL);
+            if( bufSize <= 0 )
+            {
+                break;
+            }
+            char* buff = (char*)::malloc(bufSize);
+            if( buff == nullptr )
+            {
+                break;
+            }
+            unsigned char* bufPtr = reinterpret_cast<unsigned char*>(buff);
+            bufSize = i2d_X509(obj->x509Certificate_, &bufPtr);
+            
+            if( certFormat == CertificateDataFormat::DER )
+            {
+                auto outBuff = node::Buffer::New(isolate, buff, bufSize, [](char* data, void* hint) {
+                    assert(data != nullptr);
+                    ::free(data);
+                }, nullptr);
+                if( outBuff.IsEmpty() )
+                {
+                    ::free(buff);
+                    break;
+                }
+                outCert = outBuff.ToLocalChecked();
+                break;
+            }
+            
+            BIO* mbio = BIO_new(BIO_s_mem());
+            if( mbio == nullptr )
+            {
+                ::free(buff);
+                break;
+            }
+
+            BIO* b64 = BIO_new(BIO_f_base64());
+            if( b64 == nullptr )
+            {
+                BIO_free_all(mbio);
+                ::free(buff);
+                break;
+            }
+            BIO_set_flags(b64, BIO_FLAGS_BASE64_NO_NL);
+            mbio = BIO_push(b64, mbio);
+            
+            BIO_write(mbio, buff, bufSize);
+            BIO_flush(mbio);
+
+            ::free(buff);
+            
+            BUF_MEM* mbufPtr;
+            BIO_get_mem_ptr(mbio, &mbufPtr);
+            BIO_set_close(mbio, BIO_NOCLOSE); /* So BIO_free() leaves BUF_MEM alone */
+            BIO_free_all(mbio);
+            
+            if( mbufPtr != nullptr )
+            {
+                MemBIOBufferStringResource* retResource = new MemBIOBufferStringResource(mbufPtr);
+                assert(retResource != nullptr);
+                if( retResource == nullptr )
+                {
+                    BUF_MEM_free(mbufPtr);
+                    break;
+                }
+                outCert = String::NewExternal(isolate, retResource);
+            }
+            break;
+        }
+    }
+    
+    if( outCert.IsEmpty() )
+    {
+        info.GetReturnValue().SetUndefined();
+    }
+    else
+    {
+        info.GetReturnValue().Set(outCert);
+    }
 }
 
 #if __clang__

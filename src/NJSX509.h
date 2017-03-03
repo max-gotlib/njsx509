@@ -15,6 +15,7 @@
 #endif
 
 #include <openssl/x509.h>
+#include <openssl/buffer.h>
 
 #define V8_DEPRECATION_WARNINGS 1
 
@@ -120,6 +121,15 @@ namespace NJSX509
      *      key - (optional) PEM-encoded private key string (encrypted PKCS8 blob). Should be a convertible to String or Node.Buffer. If not passed, then private key, associated with issuer certificate is used.
      *      passphrase - (optional) Passphrase to encrypt private key with. Should be a convertible to String. Default to an empty string.
      *    Return value: A new issued certificate - NJSX509Certificate class instance. Undefined is returned on error. Incomplete or invalid input data causes JS exception thrown.
+     *
+     *  NJSX509Certificate.exportCertificate([fmt])
+     *    Export X509 certificate DER/PEM/Base64 format.
+     *    Parameters:
+     *      fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
+     *          'pem' - PEM representation;
+     *          'der' - DER representation;
+     *          'der_base64' - Base-64 encoded DER representation.
+     *    Return value: String (for 'pem' and 'base64_der' formats) or Node.Buffer instance (for 'der'). Undefined is returned on error. Incomplete or invalid input data causes JS exception thrown.
      *
      * Besides API, exposed by NJSX509Certificate objects, the NJSX509 add-on module export the following factory methods:
      *
@@ -619,16 +629,29 @@ namespace NJSX509
          */
         static void IssueCertificate(const FunctionCallbackInfo<Value>& info);
 
+        /**
+         * JS object of NJSX509Certificate class exported method for exporting X509 certificate DER/PEM formats.
+         * It is expected, that JS method will be called with the following parameters:
+         *  fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
+         *      'pem' - PEM representation;
+         *      'der' - DER representation;
+         *      'der_base64' - Base-64 encoded DER representation.
+         * Return value by JS method is a string (for 'pem' and 'base64_der' formats) or Node.Buffer instance (for 'der'). Undefined is returned on error. Incomplete or invalid input data causes JS exception thrown.
+         *
+         * @param info JS function parameter list info.
+         */
+        static void ExportCertificate(const FunctionCallbackInfo<Value>& info);
+
     protected:  // NodeJS add-on exported methods.
         
         /**
          * Ad-on exported method for parsing X509 certificate collection into an array of JS objects of NJSX509Certificate class.
          * It is expected, that JS method will ve called with the following arguments:
-         *      data - Certificate store data in one of supported formats, represented as a String or Node Buffer objet;
-         *      fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
-         *          'pem' - PEM representation - concatenation of PEM represented certificates; data parameter may be String or Node.Buffer.
-         *          'der' - DER representation - concatenation of DER represented certificates; data parameter should be Node.Buffer.
-         *          'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
+         *  data - Certificate store data in one of supported formats, represented as a String or Node Buffer objet;
+         *  fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
+         *      'pem' - PEM representation - concatenation of PEM represented certificates; data parameter may be String or Node.Buffer.
+         *      'der' - DER representation - concatenation of DER represented certificates; data parameter should be Node.Buffer.
+         *      'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
          *  Return value by JS method is an array of NJSX509Certificate objects. Parsing error causes a JS exception thrown and undefined value returned.
          *
          * @param args JS function parameter list info.
@@ -653,6 +676,69 @@ namespace NJSX509
          * @param args JS function parameter list info.
          */
         static void ParsePKCS12(const FunctionCallbackInfo<Value>& args);
+        
+    public:
+        
+        /**
+         * Helper class for representing an external v8::String resource with OpenSSL BIO memory buffer.
+         */
+        class MemBIOBufferStringResource final : public String::ExternalOneByteStringResource
+        {
+        public:
+
+            /**
+             * Designated constructor for class instances. Consumes given BIO memory buffer.
+             *
+             * @param bioBuf OpenSSL BIO memory buffer with string resource content.
+             */
+            MemBIOBufferStringResource(BUF_MEM* bioBuf) : bioBuf_(bioBuf)
+            {
+            }
+            
+            /**
+             * Destructor for external string reqource. Releases BIO memory buffer.
+             */
+            virtual ~MemBIOBufferStringResource()
+            {
+                if( bioBuf_ != nullptr )
+                {
+                    BUF_MEM_free(bioBuf_);
+                }
+            }
+            
+            /**
+             * String data getter from the underlying buffer.
+             */
+            const char* data() const
+            {
+                return bioBuf_ == nullptr ? nullptr : bioBuf_->data;
+            }
+            
+            /**
+             * Getter for the length of Latin-1 character string.
+             */
+            size_t length() const
+            {
+                return bioBuf_ == nullptr ? 0 : bioBuf_->length;
+            }
+            
+        private:
+            /// Forbidden default constructor.
+            MemBIOBufferStringResource() = delete;
+            
+            /// Forbidden copy constructor.
+            MemBIOBufferStringResource(const MemBIOBufferStringResource&) = delete;
+
+            /// Forbidden move constructor.
+            MemBIOBufferStringResource(MemBIOBufferStringResource&&) = delete;
+
+            /// Forbidden assignment operator.
+            MemBIOBufferStringResource& operator = (const MemBIOBufferStringResource&) = delete;
+
+        private:
+            /// Underlying OpenSSL BIO memory buffer.
+            BUF_MEM* bioBuf_;
+        };
         
     private:
         

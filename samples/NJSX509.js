@@ -10,6 +10,27 @@ var cert
 
 try {
     console.log('============================================================');
+    var certData = fs.readFileSync('zzz.b64');
+    cert = new njsX509.NJSX509Certificate(certData, 'base64_der');
+    console.log(cert);
+    console.log('=======================');
+    certData = cert.exportCertificate('pem');
+    console.log(certData.toString('utf8'));
+    console.log('=======================');
+    certData = cert.exportCertificate('base64_der');
+    console.log(certData.toString('utf8'));
+    console.log('=======================');
+    certData = cert.exportCertificate('der');
+    console.log(certData.toString('base64'));
+    console.log('============================================================');
+} catch(e) {
+    console.error(e);
+}
+
+return
+
+try {
+    console.log('============================================================');
     let identData = fs.readFileSync('client.identity');
     let rv = njsX509.importPKCS12(identData, 'ipad', 'der');
     cert = rv.certificate;
@@ -26,10 +47,6 @@ try {
     cert = null;
 } catch(e) {
     console.error(e);
-}
-
-while(2*2 == 4) {
-    console.log(1);
 }
 
 try {
