@@ -89,14 +89,28 @@ namespace NJSX509
      *    Get a private key, associated with certificate, encrypt it with given passphrase and return in PEM (encrypted PKCS8 blob) format.
      *    Parameters:
      *      passphrase - Passphrase to encrypt private key with. Should be a convertible to String. Default to an empty string.
-     *    Return value: PEM-encoded private key string (encrypted PKCS8 blob). Undefined is retiurned if there is no private key, associated with certificate object.
+     *    Return value: PEM-encoded private key string (encrypted PKCS8 blob). Undefined is returned if there is no private key, associated with certificate object.
      *
-     *  NJSX509Certificate.setPrivateKey(key, [passphrase])
+     *  NJSX509Certificate.setPrivateKey(key [, passphrase])
      *    Associate a private key with certificate, Private key should be provided as PEM string (encrypted PKCS8 blob), with optional passphrase for decrypting.
      *    Parameters:
      *      key - PEM-encoded private key string (encrypted PKCS8 blob). Should be a convertible to String or Node.Buffer.
      *      passphrase - Passphrase to encrypt private key with. Should be a convertible to String. Default to an empty string.
      *    Return value: PEM-encoded private key string. Undefined is returned if there is no private key, associated with certificate object.
+     *
+     *  NJSX509Certificate.encryptPublic(data [, padding])
+     *    Encrypt data with certificate public key.
+     *    Parameters:
+     *      data - Input data to encrypt. Should be a convertible to String (considered to be 'utf8' encoded string) or Node.Buffer.
+     *      padding - (optional) Padding to use for encrypted data. Supported padding algorithms are: NO (no padding), PKCS1, SSLV23, OAEP, X931, PKCS1_PSS.
+     *    Return value: Node.Buffer with encrypted data. Undefined is returned on error. Incomplete or invalid input data causes JS exception thrown.
+     *
+     *  NJSX509Certificate.encryptPublic(data [, padding])
+     *    Decrypt data with private key, associated with certificate.
+     *    Parameters:
+     *      data - Input data to decrypt. Should be a convertible to String (considered to be 'utf8' encoded string) or Node.Buffer.
+     *      padding - (optional) Padding, used for decrypted data. Supported padding algorithms are: NO (no padding), PKCS1, SSLV23, OAEP, X931, PKCS1_PSS.
+     *    Return value: Node.Buffer with decrypted data. Undefined is returned on error. Incomplete or invalid input data causes JS exception thrown.
      *
      *  NJSX509Certificate.issueCertificate(cname [, serialNo [, key [, passphrase]]])
      *    Issue new X509 certificate. Instance should have a private key attached, either it should be explicitly provided as PEM string (encrypted PKCS8 blob), with optional passphrase for decrypting.
@@ -109,7 +123,7 @@ namespace NJSX509
      *
      * Besides API, exposed by NJSX509Certificate objects, the NJSX509 add-on module export the following factory methods:
      *
-     *  NJSX509Certificate.importCertificateStore(data [, fmt])
+     *  NJSX509.importCertificateStore(data [, fmt])
      *    Parse a certificate store and compose an array of certificate objects.
      *    Parameters:
      *      data - Certificate store data in one of supported formats, represented as a String or Node Buffer objet;
@@ -119,7 +133,7 @@ namespace NJSX509
      *          'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
      *    Return value: array of NJSX509Certificate objects. Parsing error causes an exception and undefined value returned.
      *
-     *  NJSX509Certificate.importPKCS12(data [, passphrase ] [, fmt ])
+     *  NJSX509.importPKCS12(data [, passphrase ] [, fmt ])
      *    Parse PKCS12 (client certificate) data blob into a primary (client) certificate, associated with a private key, and a list of ancestor (CA) certificates.
      *    Parameters:
      *      data - Certificate store data in one of supported formats, represented as a String or Node Buffer objet;
@@ -389,6 +403,34 @@ namespace NJSX509
         void setPrivateKey(EVP_PKEY* pk);
         
         /**
+         * Encrypt data blob with certificate public key.
+         *
+         * @param inData Input data blob to encrypt.
+         * @param inSize Size of input data blob (in bytes).
+         * @param outData Buffer with pointer to output (encrypted) data. On return, this pointer us set to allocated memory block, containing output data.
+         * @param padding Padding to use for encryption.
+         * @return Size of output data block, allocated and assigned to *outData. Zero is returned on error.
+         *
+         * @note The caller is responsible for deallocating returned data.
+         * @note Maximum data block size is: RSA_key_size/8 - 2 * Hash_size - Padding_size. Hash_size is 20 for SHA-1. Padding_size is 11 for PKCS (v1.5) and is 2 for OAEP.
+         */
+        size_t encryptPublic(const void* inData, size_t inSize, void** outData, int padding = RSA_PKCS1_PADDING);
+
+        /**
+         * Decrypt data blob with private key, associated with certificate.
+         *
+         * @param inData Input data blob to decrypt.
+         * @param inSize Size of input data blob (in bytes).
+         * @param outData Buffer with pointer to output (decrypted) data. On return, this pointer us set to allocated memory block, containing output data.
+         * @param padding Padding to use for decryption.
+         * @return Size of output data block, allocated and assigned to *outData. Zero is returned on error.
+         *
+         * @note The caller is responsible for deallocating returned data.
+         * @note Maximum data block size is: RSA_key_size/8 - 2 * Hash_size - Padding_size. Hash_size is 20 for SHA-1. Padding_size is 11 for PKCS (v1.5) and is 2 for OAEP.
+         */
+        size_t decryptPrivate(const void* inData, size_t inSize, void** outData, int padding = RSA_PKCS1_PADDING);
+        
+        /**
          * Issue a X509 certificate, signed by the given client identity.
          *
          * @param cname Common name part of the issued certificate subject name.
@@ -536,11 +578,33 @@ namespace NJSX509
          * It is expected, that JS method will be called with the following parameters:
          *      key - PEM-encoded private key string (encrypted PKCS8 blob). Should be a convertible to String or Node.Buffer.
          *      passphrase - Passphrase to encrypt private key with. Should be a convertible to String. Default to an empty string.
-         * Return value by JS method is a PEM-encoded private key string. Undefined is returned if there is no private key, associated with certificate object.
+         * Return value by JS method is a bool, indicating successful operation completion. Incomplete or invalid input data causes JS exception thrown.
          *
          * @param info JS function parameter list info.
          */
         static void SetPrivateKey(const FunctionCallbackInfo<Value>& info);
+
+        /**
+         * JS object of NJSX509Certificate class exported method for data encryption with certificate public key.
+         * It is expected, that JS method will be called with the following parameters:
+         *      data - Input data to encrypt. Should be a convertible to String (considered to be 'utf8' encoded string) or Node.Buffer.
+         *      padding - (optional) Padding to use for encrypted data. Supported padding algorithms are: NO (no padding), PKCS1, SSLV23, OAEP, X931, PKCS1_PSS.
+         * Return value by JS method is a Node.Buffer with encrypted data. Undefined is returned on error. Incomplete or invalid input data causes JS exception thrown.
+         *
+         * @param info JS function parameter list info.
+         */
+        static void EncryptWithPublicKey(const FunctionCallbackInfo<Value>& info);
+
+        /**
+         * JS object of NJSX509Certificate class exported method for data decryption with private key, associated with certificate.
+         * It is expected, that JS method will be called with the following parameters:
+         *      data - Input data to decrypt. Should be a convertible to String (considered to be 'utf8' encoded string) or Node.Buffer.
+         *      padding - (optional) Padding, used for decrypted data. Supported padding algorithms are: NO (no padding), PKCS1, SSLV23, OAEP, X931, PKCS1_PSS.
+         * Return value by JS method is a Node.Buffer with decrypted data. Undefined is returned on error. Incomplete or invalid input data causes JS exception thrown.
+         *
+         * @param info JS function parameter list info.
+         */
+        static void DecryptWithPrivateKey(const FunctionCallbackInfo<Value>& info);
 
         /**
          * JS object of NJSX509Certificate class exported method for X509 certificate issuing. Instance should have a private key attached, either it should be provided as PEM string (encrypted PKCS8 blob), with optional passphrase for decrypting.

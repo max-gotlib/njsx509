@@ -46,6 +46,7 @@ static bool __getASN1Time(ASN1_TIME* time, struct tm& t);
 static int __compareTime(const struct tm& t1, const struct tm& t2, bool subDayPrecision = false);
 static int __compareASN1Time(ASN1_TIME* t1, ASN1_TIME* t2, bool subDayPrecision = false);
 #endif
+static int __guessPadding(Isolate* isolate, Local<Value> arg);
 
 Persistent<Function> NJSX509Certificate::constructor_;
 
@@ -338,6 +339,157 @@ void NJSX509Certificate::setPrivateKey(EVP_PKEY* pk)
     }
 }
 
+size_t NJSX509Certificate::encryptPublic(const void* inData, size_t inSize, void** outData, int padding)
+{
+    assert(inData != nullptr);
+    if( inData == nullptr )
+    {
+        return 0;
+    }
+
+    assert(outData != nullptr);
+    if( outData == nullptr )
+    {
+        return 0;
+    }
+
+    if( x509Certificate_ == nullptr )
+    {
+        return 0;
+    }
+
+    EVP_PKEY* publicKey = X509_get_pubkey(x509Certificate_);
+    if( publicKey == nullptr )
+    {
+        return 0;
+    }
+
+    bool allocatedBuffer = false;
+    size_t outlen = 0;
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(publicKey, NULL);
+    if( ctx == nullptr )
+    {
+        goto done;
+    }
+    
+    if( EVP_PKEY_encrypt_init(ctx) <= 0 || EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_PADDING) <= 0 )
+    {
+        goto done;
+    }
+    
+    if( EVP_PKEY_encrypt(ctx, NULL, &outlen, (const unsigned char*)inData, inSize) <= 0 )
+    {
+        goto done;
+    }
+    
+    if( outlen == 0 || outData == nullptr )
+    {
+        goto done;
+    }
+    
+    if( *outData == nullptr )
+    {
+        *outData = ::malloc(outlen);
+        if( *outData == nullptr )
+        {
+            outlen = 0;
+            goto done;
+        }
+        allocatedBuffer = true;
+    }
+    
+    if( EVP_PKEY_encrypt(ctx, (unsigned char*)*outData, &outlen, (const unsigned char*)inData, inSize) <= 0 )
+    {
+        if( allocatedBuffer )
+        {
+            ::free(*outData);
+            *outData = nullptr;
+        }
+        outlen = 0;
+    }
+    
+done:
+    if( ctx != NULL )
+    {
+        EVP_PKEY_CTX_free(ctx);
+    }
+    EVP_PKEY_free(publicKey);
+    
+    return outlen;
+}
+
+size_t NJSX509Certificate::decryptPrivate(const void* inData, size_t inSize, void** outData, int padding)
+{
+    assert(inData != nullptr);
+    if( inData == nullptr )
+    {
+        return 0;
+    }
+    
+    assert(outData != nullptr);
+    if( outData == nullptr )
+    {
+        return 0;
+    }
+
+    if( privateKey_ == nullptr )
+    {
+        return 0;
+    }
+    
+    bool allocatedBuffer = false;
+    size_t outlen = 0;
+    EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new(privateKey_, NULL);
+    if( ctx == nullptr )
+    {
+        goto done;
+    }
+    
+    if( EVP_PKEY_decrypt_init(ctx) <= 0 || EVP_PKEY_CTX_set_rsa_padding(ctx, RSA_PKCS1_PADDING) <= 0 )
+    {
+        goto done;
+    }
+    
+    if( EVP_PKEY_decrypt(ctx, NULL, &outlen, (const unsigned char*)inData, inSize) <= 0 )
+    {
+        goto done;
+    }
+    
+    if( outlen == 0 || outData == nullptr )
+    {
+        goto done;
+    }
+    
+    if( *outData == nullptr )
+    {
+        *outData = ::malloc(outlen);
+        if( *outData == nullptr )
+        {
+            outlen = 0;
+            goto done;
+        }
+        allocatedBuffer = true;
+    }
+    
+    if( EVP_PKEY_decrypt(ctx, (unsigned char*)*outData, &outlen, (const unsigned char*)inData, inSize) <= 0 )
+    {
+        if( allocatedBuffer )
+        {
+            ::free(*outData);
+            *outData = nullptr;
+        }
+        outlen = 0;
+    }
+    
+done:
+    if( ctx != NULL )
+    {
+        EVP_PKEY_CTX_free(ctx);
+    }
+    
+    return outlen;
+}
+
 X509* NJSX509Certificate::issueNewCertificate(const char* cname, size_t cnameLen, unsigned serialNo, EVP_PKEY* privateKey)
 {
     assert(cname != nullptr);
@@ -347,12 +499,6 @@ X509* NJSX509Certificate::issueNewCertificate(const char* cname, size_t cnameLen
     }
     
     if( x509Certificate_ == nullptr )
-    {
-        return nullptr;
-    }
-    
-    EVP_PKEY* caPublicKey = X509_get_pubkey(x509Certificate_);
-    if( caPublicKey == nullptr )
     {
         return nullptr;
     }
@@ -479,7 +625,12 @@ X509* NJSX509Certificate::issueNewCertificate(const char* cname, size_t cnameLen
             return nullptr;
     }
     
-    if( X509_sign(newCert, privateKey, digest) == 0 )
+    EVP_PKEY* signingKey = getPrivateKey();
+    if( signingKey == nullptr )
+    {
+        signingKey = privateKey;
+    }
+    if( X509_sign(newCert, signingKey, digest) == 0 )
     {
         goto free_cert_and_return_error;
     }
@@ -704,6 +855,8 @@ void NJSX509Certificate::Init(Local<Object> exports)
     // Populate prototype methods.
     NODE_SET_PROTOTYPE_METHOD(tpl, "getPrivateKey", GetPrivateKey);
     NODE_SET_PROTOTYPE_METHOD(tpl, "setPrivateKey", SetPrivateKey);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "encryptPublic", EncryptWithPublicKey);
+    NODE_SET_PROTOTYPE_METHOD(tpl, "decryptPrivate", DecryptWithPrivateKey);
     NODE_SET_PROTOTYPE_METHOD(tpl, "issueCertificate", IssueCertificate);
     
     // Persist constructor function object.
@@ -938,6 +1091,170 @@ void NJSX509Certificate::SetPrivateKey(const FunctionCallbackInfo<Value>& info)
     if( ok )
     {
         info.GetReturnValue().Set(obj->getPrivateKey() != nullptr);
+    }
+}
+
+static int __guessPadding(Isolate* isolate, Local<Value> arg)
+{
+    String::Utf8Value paddingName(arg->ToString());
+    if( paddingName.length() > 0 )
+    {
+        if( ::strncasecmp(*paddingName, "PKCS1", paddingName.length()) == 0 )
+        {
+            return RSA_PKCS1_PADDING;
+        }
+        if( ::strncasecmp(*paddingName, "SSLV23", paddingName.length()) == 0 )
+        {
+            return RSA_SSLV23_PADDING;
+        }
+        if( ::strncasecmp(*paddingName, "NO", paddingName.length()) == 0 )
+        {
+            return RSA_NO_PADDING;
+        }
+        if( ::strncasecmp(*paddingName, "OAEP", paddingName.length()) == 0 )
+        {
+            return RSA_PKCS1_OAEP_PADDING;
+        }
+        if( ::strncasecmp(*paddingName, "X931", paddingName.length()) == 0 )
+        {
+            return RSA_X931_PADDING;
+        }
+        if( ::strncasecmp(*paddingName, "PKCS1_PSS", paddingName.length()) == 0 )
+        {
+            return RSA_PKCS1_PSS_PADDING;
+        }
+    }
+    isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "Encrypt public: Invalid padding. Supported are: NO, PKCS1, SSLV23, OAEP, X931, PKCS1_PSS.")));
+    return -1;
+}
+
+void NJSX509Certificate::EncryptWithPublicKey(const FunctionCallbackInfo<Value>& info)
+{
+    NJSX509Certificate* obj = nativeObjectFromJSObject(info);
+    if( obj == nullptr )
+    {
+        return;
+    }
+    
+    Isolate* isolate = info.GetIsolate();
+    if( obj->x509Certificate_ == nullptr )
+    {
+        isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "Encrypt public: incomplete certificate.")));
+        return;
+    }
+    
+    if( info.Length() == 0 )
+    {
+        isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "Wrong number of arguments.")));
+        return;
+    }
+
+    int padding = RSA_PKCS1_PADDING;
+    if( info.Length() > 1 )
+    {
+        padding = __guessPadding(isolate, info[1]);
+        if( padding == -1 )
+        {
+            return;
+        }
+    }
+
+    size_t outSize = 0;
+    void* outData = nullptr;
+    bool ok = CallWithRawDataRepresentation(info[0], [&obj, &outData, &outSize, padding, isolate](const char* inData, size_t inSize) -> bool {
+        outSize = obj->encryptPublic(inData, inSize, &outData, padding);
+        if( outSize == 0 )
+        {
+            std::string temp = "Encrypt public: ";
+            temp += ERR_error_string(ERR_get_error(), nullptr);
+            isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, temp.c_str())));
+            return false;
+        }
+        return true;
+    });
+    if( !ok )
+    {
+        return;
+    }
+    
+    assert(outSize > 0);
+    assert(outData != nullptr);
+    
+    auto outBuff = node::Buffer::New(isolate, reinterpret_cast<char*>(outData), outSize, [](char* data, void* hint) {
+        free(data);
+    }, nullptr);
+    if( outBuff.IsEmpty() )
+    {
+        info.GetReturnValue().SetUndefined();
+    }
+    else
+    {
+        info.GetReturnValue().Set(outBuff.ToLocalChecked());
+    }
+}
+
+void NJSX509Certificate::DecryptWithPrivateKey(const FunctionCallbackInfo<Value>& info)
+{
+    NJSX509Certificate* obj = nativeObjectFromJSObject(info);
+    if( obj == nullptr )
+    {
+        return;
+    }
+    
+    Isolate* isolate = info.GetIsolate();
+    if( obj->privateKey_ == nullptr )
+    {
+        isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "Decrypt private: no associated private key.")));
+        return;
+    }
+    
+    if( info.Length() == 0 )
+    {
+        isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, "Wrong number of arguments.")));
+        return;
+    }
+    
+    int padding = RSA_PKCS1_PADDING;
+    if( info.Length() > 1 )
+    {
+        padding = __guessPadding(isolate, info[1]);
+        if( padding == -1 )
+        {
+            return;
+        }
+    }
+    
+    size_t outSize = 0;
+    void* outData = nullptr;
+    bool ok = CallWithRawDataRepresentation(info[0], [&obj, &outData, &outSize, padding, isolate](const char* inData, size_t inSize) -> bool {
+        outSize = obj->decryptPrivate(inData, inSize, &outData, padding);
+        if( outSize == 0 )
+        {
+            std::string temp = "Decrypt private: ";
+            temp += ERR_error_string(ERR_get_error(), nullptr);
+            isolate->ThrowException(Exception::TypeError(String::NewFromUtf8(isolate, temp.c_str())));
+            return false;
+        }
+        return true;
+    });
+    if( !ok )
+    {
+        return;
+    }
+    
+    assert(outSize > 0);
+    assert(outData != nullptr);
+    
+    auto outBuff = node::Buffer::New(isolate, reinterpret_cast<char*>(outData), outSize, [](char* data, void* hint) {
+        free(data);
+    }, nullptr);
+    if( outBuff.IsEmpty() )
+    {
+        info.GetReturnValue().SetUndefined();
+    }
+    else
+    {
+        info.GetReturnValue().Set(outBuff.ToLocalChecked());
     }
 }
 

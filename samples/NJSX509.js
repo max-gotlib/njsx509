@@ -9,6 +9,30 @@ try {
 var cert
 
 try {
+    console.log('============================================================');
+    let identData = fs.readFileSync('client.identity');
+    let rv = njsX509.importPKCS12(identData, 'ipad', 'der');
+    cert = rv.certificate;
+    console.log(cert);
+    console.log('=======================');
+    var encData = cert.encryptPublic('01234567890');
+    console.log(encData.toString('base64'))
+    console.log('=======================');
+    var decData = cert.decryptPrivate(encData);
+    console.log(decData.toString('utf8'))
+    console.log('============================================================');
+    encData = null;
+    decData = null;
+    cert = null;
+} catch(e) {
+    console.error(e);
+}
+
+while(2*2 == 4) {
+    console.log(1);
+}
+
+try {
 //    let identData = fs.readFileSync('client.identity');
 //    let rv = njsX509.importPKCS12(identData, 'ipad', 'der');
 //    let caCert = rv.certificate;
