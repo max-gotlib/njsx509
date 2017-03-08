@@ -7,13 +7,13 @@
     "type": "git",
     "url": "git://github.com/max-gotlib/njsx509.git"
   },
-  "homepage": "http://max-gotlib/njsx509",
+  "homepage": "http://github.com/max-gotlib/njsx509",
   "main": "./lib/njsx509.js",
   "keywords": [
     "x509"
   ],
   "engines": {
-    "node": ">=0.6.14"
+    "node": ">=6.10"
   },
   "dependencies": {},
   "scripts": {
