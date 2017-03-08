@@ -1,6 +1,6 @@
 //
 //  NJSX509.h
-//  NJS51MapsProxy
+//  NJSX509
 //
 //  Created by Maxim Gotlib on 2/28/17.
 //  Copyright © 2017 Maxim Gotlib. All rights reserved.
