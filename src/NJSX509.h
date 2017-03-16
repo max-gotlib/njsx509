@@ -63,7 +63,7 @@ namespace NJSX509
      *      fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
      *          'pem' - PEM representation; data parameter may be String or Node.Buffer.
      *          'der' - DER representation; data parameter should be Node.Buffer.
-     *          'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
+     *          'base64_der' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
      *      Return value: NJSX509Certificate object. Parsing error causes an exception and undefined value returned.
      *
      * JS NJSX509Certificate objects expose the following API:
@@ -128,7 +128,7 @@ namespace NJSX509
      *      fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
      *          'pem' - PEM representation;
      *          'der' - DER representation;
-     *          'der_base64' - Base-64 encoded DER representation.
+     *          'base64_der' - Base-64 encoded DER representation.
      *    Return value: String (for 'pem' and 'base64_der' formats) or Node.Buffer instance (for 'der'). Undefined is returned on error. Incomplete or invalid input data causes JS exception thrown.
      *
      * Besides API, exposed by NJSX509Certificate objects, the NJSX509 add-on module export the following factory methods:
@@ -140,7 +140,7 @@ namespace NJSX509
      *      fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
      *          'pem' - PEM representation - concatenation of PEM represented certificates; data parameter may be String or Node.Buffer.
      *          'der' - DER representation - concatenation of DER represented certificates; data parameter should be Node.Buffer.
-     *          'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
+     *          'base64_der' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
      *    Return value: array of NJSX509Certificate objects. Parsing error causes an exception and undefined value returned.
      *
      *  NJSX509.importPKCS12(data [, passphrase ] [, fmt ])
@@ -149,9 +149,8 @@ namespace NJSX509
      *      data - Certificate store data in one of supported formats, represented as a String or Node Buffer objet;
      *      passphrase - (optional) Passphrase for PKCS12 bag decryption. Defaults to an empty string;
      *      fmt - (optional, always the last parameter) certificate data representation format. Default format is 'pem'. Supported formats are:
-     *          'pem' - PEM representation - concatenation of PEM represented certificates; data parameter may be String or Node.Buffer.
      *          'der' - DER representation - concatenation of DER represented certificates; data parameter should be Node.Buffer.
-     *          'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
+     *          'pem' or 'base64_der' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
      *    Return value by JS method is a JS object with the following properties:
      *      'certificate' - Primary (client) certificate object. If there was a private key in input data bad, then it is associated with primary certificate.
      *      'pk' - Private key in PEM format, encrypted with the same passphrase, that was used to decrypt PKCS12 bag.
@@ -635,7 +634,7 @@ namespace NJSX509
          *  fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
          *      'pem' - PEM representation;
          *      'der' - DER representation;
-         *      'der_base64' - Base-64 encoded DER representation.
+         *      'base64_der' - Base-64 encoded DER representation.
          * Return value by JS method is a string (for 'pem' and 'base64_der' formats) or Node.Buffer instance (for 'der'). Undefined is returned on error. Incomplete or invalid input data causes JS exception thrown.
          *
          * @param info JS function parameter list info.
@@ -651,7 +650,7 @@ namespace NJSX509
          *  fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
          *      'pem' - PEM representation - concatenation of PEM represented certificates; data parameter may be String or Node.Buffer.
          *      'der' - DER representation - concatenation of DER represented certificates; data parameter should be Node.Buffer.
-         *      'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
+         *      'base64_der' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
          *  Return value by JS method is an array of NJSX509Certificate objects. Parsing error causes a JS exception thrown and undefined value returned.
          *
          * @param args JS function parameter list info.
@@ -665,8 +664,7 @@ namespace NJSX509
          *   passphrase - Passphrase for PKCS12 bag decryption. Defaults to an empty string;
          *   fmt - (optional) certificate data representation format. Default format is 'pem'. Supported formats are:
          *     'pem' - PEM representation - concatenation of PEM represented certificates; data parameter may be String or Node.Buffer.
-         *     'der' - DER representation - concatenation of DER represented certificates; data parameter should be Node.Buffer.
-         *     'der_base64' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
+         *     'der' or 'base64_der' - Base-64 encoded DER representation; data parameter may be String or Node.Buffer.
          *  Return value by JS method is a JS object with the following properties:
          *      'certificate' - Primary (client) certificate object. If there was a private key in input data bad, then it is associated with primary certificate.
          *      'pk' - Private key in PEM format, encrypted with the same passphrase, that was used to decrypt PKCS12 bag.
