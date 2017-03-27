@@ -60,6 +60,7 @@ NJSX509Certificate::NJSX509Certificate(X509* cert, EVP_PKEY* privateKey)
     , subject_(nullptr)
     , issuer_(nullptr)
     , commonName_(nullptr)
+    , fingerprint_(nullptr)
 {
     if( x509Certificate_ != nullptr )
     {
@@ -101,6 +102,12 @@ NJSX509Certificate::~NJSX509Certificate()
     {
         ::free(commonName_);
         commonName_ = nullptr;
+    }
+    
+    if( fingerprint_ != nullptr )
+    {
+        ::free(fingerprint_);
+        fingerprint_ = nullptr;
     }
 }
 
@@ -284,8 +291,51 @@ const char* NJSX509Certificate::getCommonName() const
     
     X509_NAME_get_text_by_NID(subj, NID_commonName, commonName_, textLen + 1);
     commonName_[textLen] = '\0';
-    
+
     return commonName_;
+}
+
+const char* NJSX509Certificate::getFingerprint() const
+{
+    if( fingerprint_ != nullptr )
+    {
+        return fingerprint_;
+    }
+    
+    if( x509Certificate_ == nullptr )
+    {
+        return nullptr;
+    }
+
+    unsigned char buff[EVP_MAX_MD_SIZE];
+    unsigned int n = 0;
+    X509_digest(x509Certificate_, EVP_sha1(), buff, &n);
+    
+    if( n > 0 )
+    {
+        fingerprint_ = reinterpret_cast<char*>(::malloc(static_cast<size_t>(3 * n + 1)));
+        if( fingerprint_ == nullptr )
+        {
+            return nullptr;
+        }
+        auto* ptr = fingerprint_;
+        auto* mdPtr = buff;
+        for( auto i = 0; i < n - 1; ++i, ++mdPtr )
+        {
+            auto ch = (*mdPtr & 0xF0) >> 4;
+            *ptr++ = ch > 9 ? 'A' -10 + ch : '0' + ch;
+            ch = *mdPtr & 0x0F;
+            *ptr++ = ch > 9 ? 'A' -10 + ch : '0' + ch;
+            *ptr++ = ':';
+        }
+        auto ch = (*mdPtr & 0xF0) >> 4;
+        *ptr++ = ch > 9 ? 'A' -10 + ch : '0' + ch;
+        ch = *mdPtr & 0x0F;
+        *ptr++ = ch > 9 ? 'A' -10 + ch : '0' + ch;
+        *ptr = '\0';
+    }
+    
+    return fingerprint_;
 }
 
 time_t NJSX509Certificate::getValidFrom() const
@@ -851,6 +901,8 @@ void NJSX509Certificate::Init(Local<Object> exports)
     tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "notValidAfter"),
                                          datePropertyAccessor<&NJSX509Certificate::getNotValidAfter>, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
     tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "publicKey"), PublicKey, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
+    tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "fingerprint"),
+                                         stringPropertyAccessor<&NJSX509Certificate::getFingerprint>, nullptr, Local<Value>(), v8::AccessControl::DEFAULT, v8::PropertyAttribute::ReadOnly);
     
     // Populate prototype methods.
     NODE_SET_PROTOTYPE_METHOD(tpl, "getPrivateKey", GetPrivateKey);

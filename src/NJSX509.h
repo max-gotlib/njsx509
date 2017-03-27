@@ -86,6 +86,9 @@ namespace NJSX509
      *  NJSX509Certificate.publicKey
      *      PEM representation for the certificate public key.
      *
+     *  NJSX509Certificate.fingerprint
+     *      SHA1 fingerprint for X509 certificate.
+     *
      *  NJSX509Certificate.getPrivateKey([passphrase])
      *    Get a private key, associated with certificate, encrypt it with given passphrase and return in PEM (encrypted PKCS8 blob) format.
      *    Parameters:
@@ -106,7 +109,7 @@ namespace NJSX509
      *      padding - (optional) Padding to use for encrypted data. Supported padding algorithms are: NO (no padding), PKCS1, SSLV23, OAEP, X931, PKCS1_PSS.
      *    Return value: Node.Buffer with encrypted data. Undefined is returned on error. Incomplete or invalid input data causes JS exception thrown.
      *
-     *  NJSX509Certificate.encryptPublic(data [, padding])
+     *  NJSX509Certificate.decryptPrivate(data [, padding])
      *    Decrypt data with private key, associated with certificate.
      *    Parameters:
      *      data - Input data to decrypt. Should be a convertible to String (considered to be 'utf8' encoded string) or Node.Buffer.
@@ -357,6 +360,13 @@ namespace NJSX509
          * @return CN component of X509 certificate subject name. NULL is returned on error.
          */
         const char* getCommonName() const;
+
+        /**
+         * Getter for SHA1 fingerprint for the X509 certificate.
+         *
+         * @return SHA1 certificte fingeprint. Format is 'XX:XX:..'.
+         */
+        const char* getFingerprint() const;
 
         /**
          * Get X509 certificate validity start date.
@@ -757,6 +767,9 @@ namespace NJSX509
 
         /// Common name component of the certificate subject name, represented by a zero-terminated string.
         mutable char* commonName_;
+
+        /// X509 certificate SHA1 fingerprint.
+        mutable char* fingerprint_;
     };
     
 }  // end of namespace NJSX509
