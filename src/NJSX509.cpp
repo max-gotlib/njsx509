@@ -23,6 +23,7 @@
 
 #if _WIN32
 #define strcasecmp _stricmp
+#define strncasecmp _strnicmp
 #endif
 
 #include <string>
@@ -1182,27 +1183,27 @@ static int __guessPadding(Isolate* isolate, Local<Value> arg)
     String::Utf8Value paddingName(arg->ToString());
     if( paddingName.length() > 0 )
     {
-        if( ::strncasecmp(*paddingName, "PKCS1", paddingName.length()) == 0 )
+        if( strncasecmp(*paddingName, "PKCS1", paddingName.length()) == 0 )
         {
             return RSA_PKCS1_PADDING;
         }
-        if( ::strncasecmp(*paddingName, "SSLV23", paddingName.length()) == 0 )
+        if( strncasecmp(*paddingName, "SSLV23", paddingName.length()) == 0 )
         {
             return RSA_SSLV23_PADDING;
         }
-        if( ::strncasecmp(*paddingName, "NO", paddingName.length()) == 0 )
+        if( strncasecmp(*paddingName, "NO", paddingName.length()) == 0 )
         {
             return RSA_NO_PADDING;
         }
-        if( ::strncasecmp(*paddingName, "OAEP", paddingName.length()) == 0 )
+        if( strncasecmp(*paddingName, "OAEP", paddingName.length()) == 0 )
         {
             return RSA_PKCS1_OAEP_PADDING;
         }
-        if( ::strncasecmp(*paddingName, "X931", paddingName.length()) == 0 )
+        if( strncasecmp(*paddingName, "X931", paddingName.length()) == 0 )
         {
             return RSA_X931_PADDING;
         }
-        if( ::strncasecmp(*paddingName, "PKCS1_PSS", paddingName.length()) == 0 )
+        if( strncasecmp(*paddingName, "PKCS1_PSS", paddingName.length()) == 0 )
         {
             return RSA_PKCS1_PSS_PADDING;
         }
