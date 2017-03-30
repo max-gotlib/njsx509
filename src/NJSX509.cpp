@@ -21,6 +21,10 @@
 #pragma clang diagnostic pop
 #endif
 
+#if _WIN32
+#define strcasecmp _stricmp
+#endif
+
 #include <string>
 
 using namespace NJSX509;
@@ -320,7 +324,7 @@ const char* NJSX509Certificate::getFingerprint() const
         }
         auto* ptr = fingerprint_;
         auto* mdPtr = buff;
-        for( auto i = 0; i < n - 1; ++i, ++mdPtr )
+        for( unsigned int i = 0; i < n - 1; ++i, ++mdPtr )
         {
             auto ch = (*mdPtr & 0xF0) >> 4;
             *ptr++ = ch > 9 ? 'A' -10 + ch : '0' + ch;
@@ -1367,11 +1371,11 @@ void NJSX509Certificate::IssueCertificate(const FunctionCallbackInfo<Value>& inf
         return;
     }
 
-    unsigned serialNo = 1;
+    uint32_t serialNo = 1;
     EVP_PKEY* pk = nullptr;
     if( info.Length() > 1 )
     {
-        serialNo = info[1]->NumberValue();
+        serialNo = info[1]->Uint32Value();
 
         if( info.Length() > 2 )
         {
