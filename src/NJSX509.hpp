@@ -298,7 +298,7 @@ namespace NJSX509 {
         }
 
         auto dPtr = reinterpret_cast<const unsigned char*>(pkcs12Data);
-        PKCS12* pkcsBag = d2i_PKCS12(nullptr, &dPtr, dataLength);
+        PKCS12* pkcsBag = d2i_PKCS12(nullptr, &dPtr, static_cast<long>(dataLength));
         if( pkcsBag == nullptr )
         {
             return false;

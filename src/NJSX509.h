@@ -184,7 +184,7 @@ namespace NJSX509
          * @param cert OpenSSL wrapper for X509 certificate. Constructor up-references the wrapper, so it may be released (with X509_free() call) by the caller.
          * @param privateKey OpenSSL wrapper for a private key. Constructor up-references the wrapper, so it may be released (with EVP_PKEY_free() call) by the caller.
          */
-        NJSX509Certificate(X509* cert = nullptr, EVP_PKEY* privateKey = nullptr);
+        NJSX509Certificate(X509* cert, EVP_PKEY* privateKey = nullptr);
         
         /**
          * Destructor for NJSX509Certificate class instances.
